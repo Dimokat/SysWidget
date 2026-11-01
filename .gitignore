@@ -1,0 +1,9 @@
+﻿# Built binaries are published as GitHub Release assets, not committed
+*.exe
+*.new.cs
+*.task.xml
+# Personal settings
+*.ini
+# Archives
+*.7z
+*.zip
