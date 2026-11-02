@@ -163,7 +163,9 @@ sealed class FpsCounter : IDisposable
         finally { Marshal.FreeHGlobal(p); }
         Guid g = DXGI; EnableTraceEx2(session, ref g, 1, 4, 0, 0, 0, IntPtr.Zero);
         g = D3D9; EnableTraceEx2(session, ref g, 1, 4, 0, 0, 0, IntPtr.Zero);
-        g = DXGK; EnableTraceEx2(session, ref g, 1, 4, 0x8000000 /*Present*/, 0, 0, IntPtr.Zero);
+        // DxgKrnl Present_Info (184) is emitted for every present, whatever the API (DirectX, OpenGL, Vulkan).
+        // It sits under the very busy "Base" keyword, so ask Windows to deliver only event 184.
+        if (!EnableIds(DXGK, 0x1 /*Base*/, 184)) { g = DXGK; EnableTraceEx2(session, ref g, 1, 4, 0x1, 0, 0, IntPtr.Zero); }
         cb = OnEvent;
         var lf = new EVENT_TRACE_LOGFILEW { LoggerName = Session, ProcessTraceMode = 0x100 | 0x10000000, EventRecordCallback = cb };
         trace = OpenTraceW(ref lf);
@@ -171,6 +173,29 @@ sealed class FpsCounter : IDisposable
         thread = new Thread(delegate () { ProcessTrace(new[] { trace }, 1, IntPtr.Zero, IntPtr.Zero); });
         thread.IsBackground = true; thread.Start();
         return true;
+    }
+
+    // EnableTraceEx2 with an EVENT_FILTER_TYPE_EVENT_ID filter (Windows 8.1+), so only the listed event IDs are delivered.
+    bool EnableIds(Guid provider, ulong keywords, params ushort[] ids)
+    {
+        int dataSize = 4 + 2 * ids.Length;
+        IntPtr data = Marshal.AllocHGlobal(dataSize), desc = Marshal.AllocHGlobal(16), prm = Marshal.AllocHGlobal(48);
+        try
+        {
+            Marshal.WriteByte(data, 0, 1);                       // FilterIn = TRUE
+            Marshal.WriteByte(data, 1, 0);                       // Reserved
+            Marshal.WriteInt16(data, 2, (short)ids.Length);      // Count
+            for (int i = 0; i < ids.Length; i++) Marshal.WriteInt16(data, 4 + 2 * i, (short)ids[i]);
+            Marshal.WriteInt64(desc, 0, data.ToInt64());         // EVENT_FILTER_DESCRIPTOR.Ptr
+            Marshal.WriteInt32(desc, 8, dataSize);               //   .Size
+            Marshal.WriteInt32(desc, 12, unchecked((int)0x80000200)); // .Type = EVENT_FILTER_TYPE_EVENT_ID
+            Marshal.Copy(new byte[48], 0, prm, 48);
+            Marshal.WriteInt32(prm, 0, 2);                       // ENABLE_TRACE_PARAMETERS_VERSION_2
+            Marshal.WriteInt64(prm, 32, desc.ToInt64());         // EnableFilterDesc
+            Marshal.WriteInt32(prm, 40, 1);                      // FilterDescCount
+            return EnableTraceEx2(session, ref provider, 1, 4, keywords, 0, 0, prm) == 0;
+        }
+        finally { Marshal.FreeHGlobal(prm); Marshal.FreeHGlobal(desc); Marshal.FreeHGlobal(data); }
     }
 
     void OnEvent(IntPtr r)
