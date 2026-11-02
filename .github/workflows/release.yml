@@ -1,6 +1,6 @@
-﻿name: Release
+name: Release
 
-# Push a tag like v1.1.0 -> builds SysWidget.exe + SysWidgetSetup.exe on Windows and publishes a GitHub Release.
+# Push a tag like v1.1.0 -> builds SysWidget.exe + Setup.exe on Windows and publishes them as a zip in a GitHub Release.
 on:
   push:
     tags: ['v*']
@@ -31,11 +31,25 @@ jobs:
         shell: cmd
         run: build.bat
 
+      - name: Package
+        shell: pwsh
+        run: |
+          $zip = "SysWidget-${{ github.ref_name }}.zip"
+          New-Item pkg -ItemType Directory | Out-Null
+          Copy-Item SysWidget.exe, Setup.exe, LICENSE pkg
+          "Extract this folder, then run Setup.exe.`r`n`r`nSysWidget by Dimokat - https://github.com/Dimokat/SysWidget" | Set-Content pkg\README.txt
+          Compress-Archive pkg\* $zip
+          "ZIP=$zip" | Out-File $env:GITHUB_ENV -Append
+
       - name: Publish release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $hash = (Get-FileHash SysWidgetSetup.exe -Algorithm SHA256).Hash.ToLower()
-          $notes = "Download **SysWidgetSetup.exe** below and run it.`n`nSHA-256 of SysWidgetSetup.exe: ``$hash``"
-          gh release create '${{ github.ref_name }}' SysWidgetSetup.exe --title 'SysWidget ${{ github.ref_name }}' --notes $notes --generate-notes
+          $h = @{}
+          foreach ($f in $env:ZIP, 'SysWidget.exe', 'Setup.exe') { $h[$f] = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower() }
+          $notes = "Download **$env:ZIP** below, extract it, then run **Setup.exe**.`n`nSHA-256:`n" +
+                   "- ``$env:ZIP``: ``$($h[$env:ZIP])```n" +
+                   "- ``SysWidget.exe``: ``$($h['SysWidget.exe'])```n" +
+                   "- ``Setup.exe``: ``$($h['Setup.exe'])``"
+          gh release create '${{ github.ref_name }}' $env:ZIP --title 'SysWidget ${{ github.ref_name }}' --notes $notes --generate-notes

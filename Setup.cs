@@ -1,5 +1,6 @@
-// SysWidget Setup - single-file installer/uninstaller. Author: Dimokat.
-// Build (see build.bat): needs SysWidget.exe and SysWidget.ico next to it; they are embedded as resources.
+// SysWidget Setup - installer/uninstaller. Author: Dimokat.
+// Ships next to SysWidget.exe (in the release zip) and copies it into Program Files.
+// Build (see build.bat): needs SysWidget.ico, which is embedded for the window logo.
 using System;
 using System.Diagnostics;
 using System.Drawing;
@@ -36,6 +37,10 @@ static class Setup
         Application.Run(new SetupForm(uninstall));
     }
 
+    // SysWidget.exe is shipped next to Setup.exe, not embedded in it.
+    public static string Source { get { return Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "SysWidget.exe"); } }
+    public static bool HasSource { get { return File.Exists(Source); } }
+
     public static bool Installed
     {
         get { using (var k = Registry.LocalMachine.OpenSubKey(UninstKey)) return k != null; }
@@ -57,12 +62,12 @@ static class Setup
 
     public static void Install(bool startup, bool startMenu, bool desktop, Action<string> status)
     {
+        if (!HasSource) throw new Exception("SysWidget.exe was not found next to Setup.exe.\n\nExtract the whole zip to a folder first, then run Setup.exe from there.");
         status("Stopping SysWidget..."); StopWidget();
 
         status("Copying files...");
         Directory.CreateDirectory(Dir);
-        using (var res = Assembly.GetExecutingAssembly().GetManifestResourceStream("SysWidget.exe"))
-        using (var f = File.Create(Exe)) res.CopyTo(f);
+        if (!Source.Equals(Exe, StringComparison.OrdinalIgnoreCase)) File.Copy(Source, Exe, true);
         string self = Application.ExecutablePath;
         if (!self.Equals(Uninst, StringComparison.OrdinalIgnoreCase)) File.Copy(self, Uninst, true);
 
@@ -196,6 +201,12 @@ sealed class SetupForm : Form
             btnAlt.Click += delegate { using (var f = new SetupForm(true)) f.ShowDialog(this); if (!Setup.Installed) Close(); };
         }
         AcceptButton = btnMain; CancelButton = btnCancel;
+        if (!uninstall && !Setup.HasSource)
+        {
+            lblStatus.ForeColor = Color.FromArgb(0xFF, 0xA7, 0x26);
+            lblStatus.Text = "Extract the whole zip first, then run Setup.exe from that folder.";
+            btnMain.Enabled = false;
+        }
     }
 
     CheckBox Check(string text, bool on, ref int y)
