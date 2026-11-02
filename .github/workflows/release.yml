@@ -14,18 +14,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Stamp version from tag
+      - name: Version from tag
         shell: pwsh
         run: |
           $v = '${{ github.ref_name }}'.TrimStart('v')
           if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Tag must look like v1.2.3 (got ${{ github.ref_name }})" }
-          foreach ($f in 'SysWidget.cs', 'Setup.cs') {
-            $s = Get-Content $f -Raw
-            $s = $s -replace 'AssemblyVersion\("[^"]*"\)', "AssemblyVersion(""$v.0"")"
-            $s = $s -replace 'AssemblyFileVersion\("[^"]*"\)', "AssemblyFileVersion(""$v.0"")"
-            if ($f -eq 'Setup.cs') { $s = $s -replace 'Version = "[^"]*"', "Version = ""$v""" }
-            Set-Content $f $s -NoNewline
-          }
+          "VERSION=$v" | Out-File $env:GITHUB_ENV -Append   # build.bat stamps it into both programs
 
       - name: Build
         shell: cmd
@@ -35,10 +29,11 @@ jobs:
         shell: pwsh
         run: |
           $zip = "SysWidget-${{ github.ref_name }}.zip"
-          New-Item pkg -ItemType Directory | Out-Null
-          Copy-Item SysWidget.exe, Setup.exe, LICENSE pkg
-          "Extract this folder, then run Setup.exe.`r`n`r`nSysWidget by Dimokat - https://github.com/Dimokat/SysWidget" | Set-Content pkg\README.txt
-          Compress-Archive pkg\* $zip
+          # Everything goes inside a SysWidget folder, so extracting never scatters files.
+          New-Item pkg\SysWidget -ItemType Directory | Out-Null
+          Copy-Item SysWidget.exe, Setup.exe, LICENSE pkg\SysWidget
+          "Run Setup.exe from this folder.`r`n`r`nSysWidget by Dimokat - https://github.com/Dimokat/SysWidget" | Set-Content pkg\SysWidget\README.txt
+          Compress-Archive pkg\SysWidget $zip
           "ZIP=$zip" | Out-File $env:GITHUB_ENV -Append
 
       - name: Publish release

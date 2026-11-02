@@ -1,4 +1,4 @@
-﻿# Built binaries are published as GitHub Release assets, not committed
+# Built binaries are published as GitHub Release assets, not committed
 *.exe
 *.new.cs
 *.task.xml
@@ -7,3 +7,5 @@
 # Archives
 *.7z
 *.zip
+# Version-stamped copies made by build.bat
+obj/

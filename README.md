@@ -9,7 +9,7 @@ A tiny, native system-monitor widget for Windows. One small exe, no runtimes to 
 ## Install
 
 1. Download **SysWidget-vX.Y.Z.zip** from the [latest release](https://github.com/Dimokat/SysWidget/releases/latest).
-2. Extract it, then run **Setup.exe** from the extracted folder. Windows SmartScreen may say *"Windows protected your PC"* because the files aren't code-signed: click **More info → Run anyway**.
+2. Extract it and run **Setup.exe** from the **SysWidget** folder inside. Windows SmartScreen may say *"Windows protected your PC"* because the files aren't code-signed: click **More info → Run anyway**.
 3. Keep **Start with Windows** checked. It also enables the FPS counter.
 
 If Microsoft Defender flags it (a `Wacatac!ml`-style detection), that's a machine-learning false positive on new, unsigned software: allow it under *Windows Security → Protection history*. All the source and the automated build are in this repo.
@@ -41,7 +41,7 @@ In true *exclusive* fullscreen no normal window can be drawn over a game. Use bo
 
 ## Building
 
-No IDE or SDK needed. Run **build.bat**. It uses the C# compiler that's built into Windows (`csc.exe` from .NET Framework 4.x) and produces `SysWidget.exe` and `Setup.exe`.
+No IDE or SDK needed. Run **build.bat**. It takes the version from the latest git tag and uses the C# compiler that's built into Windows (`csc.exe` from .NET Framework 4.x) and produces `SysWidget.exe` and `Setup.exe`.
 
 ## Releasing
 
