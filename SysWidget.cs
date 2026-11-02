@@ -29,6 +29,29 @@ using Microsoft.Win32;
 static class Program
 {
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int RegisterWindowMessage(string name);
+    [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, int msg, IntPtr w, IntPtr l);
+    const string MutexName = "Local\\SysWidget.SingleInstance";
+
+    // Launching SysWidget again while it runs (Start menu, shortcut) brings a hidden widget back.
+    // (Posted straight to its windows: Windows drops broadcasts from a normal process to the elevated one.)
+    delegate bool EnumProc(IntPtr hwnd, IntPtr l);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out int pid);
+    static void PingRunning()
+    {
+        int msg = RegisterWindowMessage("SysWidget.Show");
+        var self = Process.GetCurrentProcess(); var pids = new HashSet<int>();
+        foreach (var p in Process.GetProcessesByName(self.ProcessName)) { if (p.Id != self.Id) pids.Add(p.Id); p.Dispose(); }
+        if (pids.Count == 0) return;
+        EnumWindows((h, l) => { int pid; GetWindowThreadProcessId(h, out pid); if (pids.Contains(pid)) PostMessage(h, msg, IntPtr.Zero, IntPtr.Zero); return true; }, IntPtr.Zero);
+    }
+    static bool AlreadyRunning()
+    {
+        try { using (Mutex.OpenExisting(MutexName)) return true; }
+        catch (UnauthorizedAccessException) { return true; } // owned by the elevated instance
+        catch { return false; }
+    }
 
     static bool IsAdmin()
     {
@@ -47,12 +70,13 @@ static class Program
         }
         // Started without admin rights (Start menu, double-click)? If the startup task exists, start through it
         // instead: it runs with highest privileges (needed for FPS) and shows no UAC prompt.
+        if (AlreadyRunning()) { PingRunning(); return; }
         if (args.Length == 0 && !IsAdmin() && WidgetForm.Schtasks("/Query /TN \"SysWidget\"") == 0 &&
             WidgetForm.Schtasks("/Run /TN \"SysWidget\"") == 0) return;
         bool created;
-        using (var mutex = new Mutex(true, "Local\\SysWidget.SingleInstance", out created))
+        using (var mutex = new Mutex(true, MutexName, out created))
         {
-            if (!created) return;
+            if (!created) { PingRunning(); return; }
             SetProcessDPIAware();
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
@@ -359,7 +383,11 @@ sealed class WidgetForm : Form
     List<DriveStat> drives = new List<DriveStat>();
     int tick;
     readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
-    ContextMenuStrip menu; ToolStripMenuItem miTop, miLock, miClick, miStartup;
+    ContextMenuStrip menu; ToolStripMenuItem miTop, miLock, miClick, miStartup, miHide;
+    NotifyIcon tray; bool hidden; string trayText = "", notifiedTag;
+    static readonly int WM_SHOWME = Program.RegisterWindowMessage("SysWidget.Show");
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int cmd);
+    [DllImport("user32.dll")] static extern bool ChangeWindowMessageFilterEx(IntPtr hwnd, uint msg, uint action, IntPtr info);
     WinEventProc fgProc; IntPtr fgHook;
 
     public WidgetForm()
@@ -383,6 +411,7 @@ sealed class WidgetForm : Form
         PlaceBody(ValidPosition(posX, posY));
         if (anchor != "") SnapTo(anchor);
         BuildMenu();
+        BuildTray();
         timer.Interval = 1000;
         timer.Tick += delegate { OnTick(); };
         // Click-through: poll Ctrl + cursor 20x/s, only while click-through is on.
@@ -508,7 +537,9 @@ sealed class WidgetForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        Render();
+        if (WM_SHOWME != 0) ChangeWindowMessageFilterEx(Handle, (uint)WM_SHOWME, 1 /*MSGFLT_ALLOW*/, IntPtr.Zero);
+        if (hidden) ShowWindow(Handle, 0); // a layered window shows nothing until its first frame, so no flash
+        else Render();
         if (onTop) SetOnTop(true); else SendToDesktopLevel();
         fgProc = OnForeground;
         fgHook = SetWinEventHook(3 /*EVENT_SYSTEM_FOREGROUND*/, 3, IntPtr.Zero, fgProc, 0, 0, 2 /*OUTOFCONTEXT|SKIPOWNPROCESS*/);
@@ -524,6 +555,7 @@ sealed class WidgetForm : Form
         SaveSettings();
         pdh.Dispose();
         if (fps != null) fps.Dispose();
+        if (tray != null) { tray.Visible = false; tray.Dispose(); }
         try { if (nvOk) Nvml.nvmlShutdown(); } catch { }
         base.OnFormClosed(e);
     }
@@ -564,6 +596,8 @@ sealed class WidgetForm : Form
             if (drives.Count != before) Relayout();
         }
         Sample();
+        UpdateTray();
+        if (hidden) return;
         if (!onTop && !desktopRaised && DesktopIsAboveUs()) RaiseOverDesktop();
         if (onTop) KeepOnTop();
         if (!HiddenByFullscreen()) Render();
@@ -969,6 +1003,7 @@ sealed class WidgetForm : Form
     // ------------------------------------------------------------------ window behaviour
     protected override void WndProc(ref Message m)
     {
+        if (m.Msg == WM_SHOWME && WM_SHOWME != 0) { if (hidden) SetHidden(false); return; }
         switch (m.Msg)
         {
             case WM_NCHITTEST: m.Result = (IntPtr)(locked ? 1 /*HTCLIENT*/ : 2 /*HTCAPTION*/); return;
@@ -1095,11 +1130,6 @@ sealed class WidgetForm : Form
         Point c = Cursor.Position;
         var wa = Screen.FromPoint(c).WorkingArea;
         bool right = c.X > wa.Left + wa.Width / 2, bottom = c.Y > wa.Top + wa.Height / 2;
-        foreach (ToolStripItem it in menu.Items)
-        {
-            var mi = it as ToolStripMenuItem;
-            if (mi != null && mi.HasDropDownItems) mi.DropDownDirection = right ? ToolStripDropDownDirection.Left : ToolStripDropDownDirection.Right;
-        }
         menu.Show(c, right ? (bottom ? ToolStripDropDownDirection.AboveLeft : ToolStripDropDownDirection.BelowLeft)
                            : (bottom ? ToolStripDropDownDirection.AboveRight : ToolStripDropDownDirection.BelowRight));
     }
@@ -1119,8 +1149,7 @@ sealed class WidgetForm : Form
     void BuildMenu()
     {
         menu = new ContextMenuStrip();
-        var miUpdate = new ToolStripMenuItem("", null, delegate { OpenUrl(updateUrl); }) { Visible = false };
-        miUpdate.Font = new Font(miUpdate.Font, FontStyle.Bold);
+        var miUpdate = new ToolStripMenuItem("", null, delegate { OpenUrl(updateUrl); }) { Visible = false, Name = "accent" };
         var miUpdSep = new ToolStripSeparator { Visible = false };
         menu.Items.Add(miUpdate); menu.Items.Add(miUpdSep);
         menu.Opening += delegate
@@ -1131,6 +1160,9 @@ sealed class WidgetForm : Form
         miTop = new ToolStripMenuItem("Always on top", null, delegate { SetOnTop(!onTop); SaveSettings(); });
         miLock = new ToolStripMenuItem("Lock position", null, delegate { locked = !locked; SaveSettings(); });
         var miMini = new ToolStripMenuItem("Mini mode", null, delegate { mini = !mini; Relayout(); SaveSettings(); });
+        miHide = new ToolStripMenuItem("Hide widget", null, delegate { SetHidden(!hidden); });
+        menu.Items.Add(miHide); menu.Items.Add(new ToolStripSeparator());
+        menu.Opening += delegate { miHide.Text = hidden ? "Show widget" : "Hide widget"; };
         menu.Items.Add(miMini);
         menu.Opening += delegate { miMini.Checked = mini; };
         miClick = new ToolStripMenuItem("Click-through (hold Ctrl to interact)", null, delegate { SetClickThrough(!clickThrough); SaveSettings(); });
@@ -1184,9 +1216,100 @@ sealed class WidgetForm : Form
         menu.Items.Add(new ToolStripMenuItem("Task Manager", null, delegate { OpenTaskManager(); }));
         menu.Items.Add(new ToolStripMenuItem("Exit", null, delegate { Close(); }));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(new ToolStripMenuItem("SysWidget v" + VersionText + "  \u00B7  by Dimokat", null, delegate { OpenUrl("https://github.com/" + Repo); }));
+        menu.Items.Add(new ToolStripMenuItem("SysWidget v" + VersionText + "  \u00B7  by Dimokat", null, delegate { OpenUrl("https://github.com/" + Repo); }) { Name = "dim" });
         menu.Items.Add(new ToolStripMenuItem("Support the developer \u2665", null, delegate { OpenUrl(DonateUrl); }));
         menu.Opening += delegate { miTop.Checked = onTop; miLock.Checked = locked; miClick.Checked = clickThrough; miStartup.Checked = IsStartup(); };
+        // Submenus open toward the inside of the screen the menu is on (also when opened from the tray).
+        menu.Opening += delegate
+        {
+            Point c = Cursor.Position; var wa = Screen.FromPoint(c).WorkingArea;
+            var dir = c.X > wa.Left + wa.Width / 2 ? ToolStripDropDownDirection.Left : ToolStripDropDownDirection.Right;
+            foreach (ToolStripItem it in menu.Items) { var mi = it as ToolStripMenuItem; if (mi != null && mi.HasDropDownItems) mi.DropDownDirection = dir; }
+        };
+        StyleMenu(menu);
+    }
+
+    // ---- menu look: same dark panel, accent and type as the widget; rounded on Windows 11 by DWM, by a region elsewhere
+    [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+    MenuLook menuLook; Font menuFont, menuBold;
+    void StyleMenu(ToolStripDropDownMenu dd)
+    {
+        if (menuLook == null)
+        {
+            menuLook = new MenuLook(dpi);
+            menuFont = new Font("Segoe UI", 9.75f); menuBold = new Font("Segoe UI Semibold", 9.75f);
+        }
+        dd.Renderer = menuLook; dd.Font = menuFont;
+        dd.ShowImageMargin = false; dd.ShowCheckMargin = true; dd.DropShadowEnabled = false;
+        int v = (int)Math.Round(5 * dpi); dd.Padding = new Padding(0, v, 0, v);
+        dd.HandleCreated += delegate
+        {
+            // Without an owner the popup would get a taskbar button while open; a tool window never does.
+            long ex = GetWindowLongPtr(dd.Handle, GWL_EXSTYLE).ToInt64();
+            SetWindowLongPtr(dd.Handle, GWL_EXSTYLE, new IntPtr((ex | WS_EX_TOOLWINDOW) & ~0x40000L /*APPWINDOW*/));
+            if (!MenuLook.DwmCorners) return;
+            int pref = 2; DwmSetWindowAttribute(dd.Handle, 33 /*WINDOW_CORNER_PREFERENCE: round*/, ref pref, 4);
+            Color b = MenuLook.Border; int col = b.R | b.G << 8 | b.B << 16;
+            DwmSetWindowAttribute(dd.Handle, 34 /*BORDER_COLOR*/, ref col, 4);
+        };
+        if (!MenuLook.DwmCorners)
+            dd.SizeChanged += delegate
+            {
+                var old = dd.Region;
+                using (var p = MenuLook.Round(new RectangleF(0, 0, dd.Width, dd.Height), 8 * dpi)) dd.Region = new Region(p);
+                if (old != null) old.Dispose();
+            };
+        int ip = (int)Math.Round(3 * dpi);
+        foreach (ToolStripItem it in dd.Items)
+        {
+            var mi = it as ToolStripMenuItem; if (mi == null) continue;
+            mi.Padding = new Padding(mi.Padding.Left, ip, mi.Padding.Right + ip, ip);
+            if (mi.Name == "accent") mi.Font = menuBold;
+            if (mi.HasDropDownItems) StyleMenu((ToolStripDropDownMenu)mi.DropDown);
+        }
+    }
+
+    // ---- tray icon: left click hides/shows the widget, right click opens the same menu
+    static Icon AppIcon(Size sz)
+    {
+        try { using (var st = typeof(WidgetForm).Assembly.GetManifestResourceStream("SysWidget.ico")) if (st != null) return new Icon(st, sz); } catch { }
+        try { return Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { return SystemIcons.Application; }
+    }
+
+    void BuildTray()
+    {
+        tray = new NotifyIcon { Icon = AppIcon(SystemInformation.SmallIconSize), Text = "SysWidget", ContextMenuStrip = menu };
+        tray.MouseClick += (o, e) => { if (e.Button == MouseButtons.Left) SetHidden(!hidden); };
+        tray.BalloonTipClicked += delegate { if (updateUrl != null) OpenUrl(updateUrl); };
+        tray.Visible = true;
+    }
+
+    void SetHidden(bool h)
+    {
+        hidden = h;
+        if (IsHandleCreated)
+        {
+            if (h) ShowWindow(Handle, 0 /*SW_HIDE*/);
+            else
+            {
+                Render(); ShowWindow(Handle, 8 /*SW_SHOWNA*/);
+                if (onTop) SetOnTop(true); else { desktopRaised = false; SendToDesktopLevel(); }
+            }
+        }
+        SaveSettings();
+    }
+
+    void UpdateTray()
+    {
+        if (tray == null) return;
+        var sb = new StringBuilder("SysWidget");
+        sb.Append("\nCPU ").Append(cpu.ToString("0", CI)).Append('%');
+        if (nvOk && !gpuIdle) sb.Append("  \u00B7  GPU ").Append(gpuLoad.ToString("0", CI)).Append('%');
+        sb.Append("\nRAM ").Append(ramUsed.ToString("0.0", CI)).Append(" / ").Append(ramTotal.ToString("0", CI)).Append(" GB");
+        if (fpsVal > 0) sb.Append("  \u00B7  ").Append(fpsVal.ToString("0", CI)).Append(" FPS");
+        if (updateTag != null) sb.Append("\nUpdate ").Append(updateTag).Append(" available");
+        string t = sb.Length > 63 ? sb.ToString(0, 63) : sb.ToString(); // NotifyIcon's limit
+        if (t != trayText) { trayText = t; tray.Text = t; }
     }
 
     // ---- update check: asks GitHub for the latest release ~30 s after start, then every 6 h ----
@@ -1220,7 +1343,15 @@ sealed class WidgetForm : Form
                 var url = Regex.Match(json, "\"html_url\"\\s*:\\s*\"(https://github\\.com/[^\"]+/releases/tag/[^\"]+)\"");
                 if (!tag.Success || new Version(tag.Groups[1].Value) <= new Version(VersionText)) return;
                 string t = "v" + tag.Groups[1].Value, u = url.Success ? url.Groups[1].Value : "https://github.com/" + Repo + "/releases/latest";
-                BeginInvoke((MethodInvoker)delegate { updateTag = t; updateUrl = u; Render(); });
+                BeginInvoke((MethodInvoker)delegate
+                {
+                    updateTag = t; updateUrl = u; if (!hidden) Render();
+                    if (tray != null && notifiedTag != t)
+                    {
+                        notifiedTag = t;
+                        tray.ShowBalloonTip(8000, "SysWidget " + t + " is available", "Click to open the download page.", ToolTipIcon.Info);
+                    }
+                });
             }
             catch { } // offline, no releases yet, rate-limited: just try again next time
         });
@@ -1316,6 +1447,7 @@ sealed class WidgetForm : Form
                 else if (k == "locked") locked = v == "1";
                 else if (k == "clickthrough") clickThrough = v == "1";
                 else if (k == "mini") mini = v == "1";
+                else if (k == "hidden") hidden = v == "1";
                 else if (k == "fps") showFps = v == "1";
                 else if (k == "updates") checkUpdates = v != "0";
                 else if (k == "anchor") { if (v.Length == 2 && "TMB".IndexOf(v[0]) >= 0 && "LCR".IndexOf(v[1]) >= 0) anchor = v; }
@@ -1333,10 +1465,108 @@ sealed class WidgetForm : Form
         {
             File.WriteAllLines(iniPath, new[] {
                 "x=" + (Left + M).ToString(CI), "y=" + (Top + M).ToString(CI),
-                "ontop=" + (onTop ? "1" : "0"), "locked=" + (locked ? "1" : "0"), "clickthrough=" + (clickThrough ? "1" : "0"), "mini=" + (mini ? "1" : "0"), "fps=" + (showFps ? "1" : "0"), "updates=" + (checkUpdates ? "1" : "0"), "anchor=" + anchor,
+                "ontop=" + (onTop ? "1" : "0"), "locked=" + (locked ? "1" : "0"), "clickthrough=" + (clickThrough ? "1" : "0"), "mini=" + (mini ? "1" : "0"), "hidden=" + (hidden ? "1" : "0"), "fps=" + (showFps ? "1" : "0"), "updates=" + (checkUpdates ? "1" : "0"), "anchor=" + anchor,
                 "scale=" + scale.ToString(CI), "opacity=" + opacity.ToString(CI),
                 "show=" + (showCpu ? "cpu," : "") + (showGpu ? "gpu," : "") + (showRam ? "ram," : "") + (showNet ? "net," : "") + (showDisk ? "disk" : "") });
         }
         catch { }
+    }
+}
+
+// Context menu drawn like the widget: dark panel, soft accent highlight, accent check marks.
+sealed class MenuLook : ToolStripProfessionalRenderer
+{
+    public static readonly Color Bg = Color.FromArgb(22, 23, 27), Border = Color.FromArgb(56, 58, 66), Text = Color.FromArgb(232, 233, 236),
+        Dim = Color.FromArgb(128, 131, 140), Sep = Color.FromArgb(44, 46, 53), Accent = Color.FromArgb(0x4F, 0xC3, 0xF7),
+        Hover = Color.FromArgb(46, 0x4F, 0xC3, 0xF7);
+    public static readonly bool DwmCorners = IsWin11();
+    readonly float dpi;
+
+    public MenuLook(float dpi) : base(new Palette()) { this.dpi = dpi; RoundedEdges = false; }
+
+    static bool IsWin11()
+    {
+        try
+        {
+            using (var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
+            { int b; return k != null && int.TryParse(k.GetValue("CurrentBuildNumber") as string, out b) && b >= 22000; }
+        }
+        catch { return false; }
+    }
+
+    sealed class Palette : ProfessionalColorTable
+    {
+        public override Color ToolStripDropDownBackground { get { return Bg; } }
+        public override Color ImageMarginGradientBegin { get { return Bg; } }
+        public override Color ImageMarginGradientMiddle { get { return Bg; } }
+        public override Color ImageMarginGradientEnd { get { return Bg; } }
+        public override Color MenuBorder { get { return Border; } }
+        public override Color MenuItemBorder { get { return Color.Transparent; } }
+        public override Color MenuItemSelected { get { return Hover; } }
+        public override Color SeparatorDark { get { return Sep; } }
+        public override Color SeparatorLight { get { return Bg; } }
+    }
+
+    public static GraphicsPath Round(RectangleF r, float rad)
+    {
+        var p = new GraphicsPath(); float d = rad * 2;
+        p.AddArc(r.X, r.Y, d, d, 180, 90); p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90); p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+        p.CloseFigure(); return p;
+    }
+
+    protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e) { e.Graphics.Clear(Bg); }
+    protected override void OnRenderImageMargin(ToolStripRenderEventArgs e) { }
+
+    protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
+    {
+        if (DwmCorners) return; // Windows 11 draws a rounded border in our color
+        var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+        using (var p = Round(new RectangleF(0.5f, 0.5f, e.ToolStrip.Width - 1.5f, e.ToolStrip.Height - 1.5f), 8 * dpi))
+        using (var pen = new Pen(Border)) g.DrawPath(pen, p);
+    }
+
+    protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+    {
+        if (!e.Item.Selected || !e.Item.Enabled) return;
+        var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+        float ins = 5 * dpi;
+        using (var p = Round(new RectangleF(ins, 0.5f, e.Item.Width - 2 * ins, e.Item.Height - 1), 5 * dpi))
+        using (var b = new SolidBrush(Hover)) g.FillPath(b, p);
+    }
+
+    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+    {
+        string n = e.Item.Name;
+        e.TextColor = !e.Item.Enabled || n == "dim" ? (e.Item.Selected && n == "dim" ? Text : Dim) : n == "accent" ? Accent : Text;
+        base.OnRenderItemText(e);
+    }
+
+    protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
+    {
+        var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+        var r = e.ArrowRectangle; float cx = r.X + r.Width / 2f, cy = r.Y + r.Height / 2f, a = 3.2f * dpi;
+        using (var pen = new Pen(e.Item != null && e.Item.Selected ? Text : Dim, 1.4f * dpi))
+        {
+            pen.StartCap = pen.EndCap = LineCap.Round; pen.LineJoin = LineJoin.Round;
+            g.DrawLines(pen, new[] { new PointF(cx - a / 2, cy - a), new PointF(cx + a / 2, cy), new PointF(cx - a / 2, cy + a) });
+        }
+    }
+
+    protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
+    {
+        var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+        var r = e.ImageRectangle; float cx = r.X + r.Width / 2f, cy = r.Y + r.Height / 2f, u = 3.4f * dpi;
+        using (var pen = new Pen(Accent, 1.8f * dpi))
+        {
+            pen.StartCap = pen.EndCap = LineCap.Round; pen.LineJoin = LineJoin.Round;
+            g.DrawLines(pen, new[] { new PointF(cx - u * 1.15f, cy + u * 0.05f), new PointF(cx - u * 0.35f, cy + u * 0.85f), new PointF(cx + u * 1.2f, cy - u * 0.9f) });
+        }
+    }
+
+    protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+    {
+        int y = e.Item.Height / 2; float ins = 10 * dpi;
+        using (var pen = new Pen(Sep)) e.Graphics.DrawLine(pen, ins, y, e.Item.Width - ins, y);
     }
 }
