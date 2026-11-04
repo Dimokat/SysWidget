@@ -354,7 +354,7 @@ sealed class WidgetForm : Form
         return Path.Combine(dir, "SysWidget.ini");
     }
     bool onTop, locked, desktopRaised;
-    bool clickThrough, interactive, inMove;
+    bool clickThrough, interactive, inMove, hasMoveTarget; Point moveTarget;
     readonly System.Windows.Forms.Timer ctTimer = new System.Windows.Forms.Timer();
     int posX = int.MinValue, posY = int.MinValue;
 
@@ -402,6 +402,7 @@ sealed class WidgetForm : Form
         FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual; Text = "SysWidget";
         try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
         LoadSettings();
+        UpdatePanelColor();
         ApplyScale();
         InitSensors();
         Sample();
@@ -590,6 +591,7 @@ sealed class WidgetForm : Form
         bool onAC = SystemInformation.PowerStatus.PowerLineStatus != PowerLineStatus.Offline;
         timer.Interval = onAC ? 1000 : 2000;
         if (tick % 15 == 0) RefreshNics();
+        if (accentBg && tick % 10 == 0) UpdatePanelColor(); // fallback if a colour-change message was missed
         if (tick % 30 == 0)
         {
             int before = drives.Count; RefreshDrives();
@@ -792,7 +794,7 @@ sealed class WidgetForm : Form
 
         if (H > 0)
             using (var path = PanelPath())
-            using (var b = new SolidBrush(Color.FromArgb(255, 18, 19, 22)))
+            using (var b = new SolidBrush(panelBg))
             using (var p = clickThrough && interactive ? new Pen(Color.FromArgb(200, cCpu), 1.5f * s) : new Pen(Color.FromArgb(34, 255, 255, 255), 1))
             {
                 g.FillPath(b, path);
@@ -1026,25 +1028,34 @@ sealed class WidgetForm : Form
                 int ww = r.R - r.L, wh = r.B - r.T;
                 r.L = p.X - M; r.T = p.Y - M; r.R = r.L + ww; r.B = r.T + wh;
                 Marshal.StructureToPtr(r, m.LParam, false);
+                moveTarget = new Point(r.L, r.T); hasMoveTarget = true;
                 UpdateDock(new Rectangle(p.X, p.Y, W, H)); Render(false);
                 m.Result = (IntPtr)1; return;
             }
             case WM_NCLBUTTONDBLCLK:
             case WM_LBUTTONDBLCLK: OpenTaskManager(); return;
             case WM_WINDOWPOSCHANGING:
-                if (!onTop && !desktopRaised && IsHandleCreated)
+            {
+                var wp = (WINDOWPOS)Marshal.PtrToStructure(m.LParam, typeof(WINDOWPOS)); bool changed = false;
+                // Windows 11 keeps a dragged window's top edge on screen, which pushed a top-docked panel down by
+                // its transparent margin and broke the dock. Put the window exactly where WM_MOVING placed it.
+                if (inMove && hasMoveTarget && (wp.flags & SWP_NOMOVE) == 0 && (wp.x != moveTarget.X || wp.y != moveTarget.Y))
+                { wp.x = moveTarget.X; wp.y = moveTarget.Y; changed = true; }
+                if (!onTop && !desktopRaised && IsHandleCreated && (wp.flags & SWP_NOZORDER) == 0)
                 {
-                    var wp = (WINDOWPOS)Marshal.PtrToStructure(m.LParam, typeof(WINDOWPOS));
-                    if ((wp.flags & SWP_NOZORDER) == 0)
-                    {
-                        IntPtr after;
-                        if (DesktopSlot(out after)) wp.hwndInsertAfter = after; else wp.flags |= SWP_NOZORDER;
-                        Marshal.StructureToPtr(wp, m.LParam, false);
-                    }
+                    IntPtr after;
+                    if (DesktopSlot(out after)) wp.hwndInsertAfter = after; else wp.flags |= SWP_NOZORDER;
+                    changed = true;
                 }
+                if (changed) Marshal.StructureToPtr(wp, m.LParam, false);
                 break;
-            case WM_ENTERSIZEMOVE: inMove = true; moveStart = Location; grab = new Point(Cursor.Position.X - (Left + M), Cursor.Position.Y - (Top + M)); break;
-            case WM_EXITSIZEMOVE: inMove = false; if (Location != moveStart) anchor = ""; SaveSettings(); break;
+            }
+            case 0x320: // WM_DWMCOLORIZATIONCOLORCHANGED: the Windows accent colour changed
+            case 0x1A:  // WM_SETTINGCHANGE (also sent for theme / colour changes)
+                if (accentBg) BeginInvoke((MethodInvoker)UpdatePanelColor);
+                break;
+            case WM_ENTERSIZEMOVE: hasMoveTarget = false; inMove = true; moveStart = Location; grab = new Point(Cursor.Position.X - (Left + M), Cursor.Position.Y - (Top + M)); break;
+            case WM_EXITSIZEMOVE: inMove = false; hasMoveTarget = false; if (Location != moveStart) anchor = ""; SaveSettings(); break;
             case WM_DISPLAYCHANGE: BeginInvoke((MethodInvoker)delegate { if (anchor != "") SnapTo(anchor); else PlaceBody(ValidPosition(Left + M, Top + M)); }); break;
         }
         base.WndProc(ref m);
@@ -1193,6 +1204,11 @@ sealed class WidgetForm : Form
             op.DropDownItems.Add(it);
         }
         op.DropDownOpening += delegate { foreach (ToolStripMenuItem it in op.DropDownItems) it.Checked = it.Text == opacity + "%"; };
+        var bgm = new ToolStripMenuItem("Background");
+        var bgDark = new ToolStripMenuItem("Dark", null, delegate { SetAccentBg(false); });
+        var bgAccent = new ToolStripMenuItem("Windows accent color", null, delegate { SetAccentBg(true); });
+        bgm.DropDownItems.Add(bgDark); bgm.DropDownItems.Add(bgAccent);
+        bgm.DropDownOpening += delegate { bgDark.Checked = !accentBg; bgAccent.Checked = accentBg; };
         var pos = new ToolStripMenuItem("Position");
         string[] codes = { "TL", "TC", "TR", "-", "ML", "MC", "MR", "-", "BL", "BC", "BR" };
         string[] names = { "Top left", "Top center", "Top right", "", "Middle left", "Center", "Middle right", "", "Bottom left", "Bottom center", "Bottom right" };
@@ -1208,7 +1224,7 @@ sealed class WidgetForm : Form
             foreach (ToolStripItem it in pos.DropDownItems) { var mi = it as ToolStripMenuItem; if (mi != null) mi.Checked = (string)mi.Tag == anchor; }
         };
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(pos); menu.Items.Add(show); menu.Items.Add(size); menu.Items.Add(op);
+        menu.Items.Add(pos); menu.Items.Add(show); menu.Items.Add(size); menu.Items.Add(op); menu.Items.Add(bgm);
         menu.Items.Add(new ToolStripSeparator());
         var miChk = new ToolStripMenuItem("Check for updates", null, delegate { checkUpdates = !checkUpdates; SaveSettings(); if (checkUpdates) CheckForUpdate(); });
         menu.Opening += delegate { miChk.Checked = checkUpdates; };
@@ -1222,6 +1238,7 @@ sealed class WidgetForm : Form
         // Submenus open toward the inside of the screen the menu is on (also when opened from the tray).
         menu.Opening += delegate
         {
+            SyncMenus();
             Point c = Cursor.Position; var wa = Screen.FromPoint(c).WorkingArea;
             var dir = c.X > wa.Left + wa.Width / 2 ? ToolStripDropDownDirection.Left : ToolStripDropDownDirection.Right;
             foreach (ToolStripItem it in menu.Items) { var mi = it as ToolStripMenuItem; if (mi != null && mi.HasDropDownItems) mi.DropDownDirection = dir; }
@@ -1229,9 +1246,83 @@ sealed class WidgetForm : Form
         StyleMenu(menu);
     }
 
+    // ---- background: near-black, or the Windows accent colour (darkened only as far as white text needs)
+    static readonly Color DarkBg = Color.FromArgb(18, 19, 22);
+    bool accentBg; Color panelBg = DarkBg;
+    [DllImport("dwmapi.dll")] static extern int DwmGetColorizationColor(out uint color, out bool opaque);
+
+    static Color SystemAccent()
+    {
+        try
+        {
+            using (var k = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\DWM"))
+            {
+                object v = k == null ? null : k.GetValue("AccentColor");
+                if (v is int) { uint c = unchecked((uint)(int)v); return Color.FromArgb((int)(c & 0xFF), (int)(c >> 8 & 0xFF), (int)(c >> 16 & 0xFF)); } // 0xAABBGGRR
+            }
+        }
+        catch { }
+        try { uint c; bool o; if (DwmGetColorizationColor(out c, out o) == 0) return Color.FromArgb((int)(c >> 16 & 0xFF), (int)(c >> 8 & 0xFF), (int)(c & 0xFF)); } catch { }
+        return Color.FromArgb(0, 120, 215);
+    }
+
+    static double Luminance(Color c)
+    {
+        Func<int, double> f = v => { double x = v / 255.0; return x <= 0.04045 ? x / 12.92 : Math.Pow((x + 0.055) / 1.055, 2.4); };
+        return 0.2126 * f(c.R) + 0.7152 * f(c.G) + 0.0722 * f(c.B);
+    }
+
+    // Keeps the hue but darkens a light accent until white text has about 10:1 contrast on it.
+    static Color PanelFromAccent(Color a)
+    {
+        for (int i = 0; i < 60 && Luminance(a) > 0.055; i++) a = Color.FromArgb((int)(a.R * 0.93), (int)(a.G * 0.93), (int)(a.B * 0.93));
+        return a;
+    }
+
+    void UpdatePanelColor()
+    {
+        Color c = accentBg ? PanelFromAccent(SystemAccent()) : DarkBg;
+        if (c.ToArgb() == panelBg.ToArgb()) return;
+        panelBg = c; MenuLook.SetBase(c, accentBg);
+        if (IsHandleCreated && !hidden) Render();
+        foreach (var dd in menuDropDowns) { dd.BackColor = MenuLook.Bg; if (dd.IsHandleCreated) ApplyMenuFrame(dd); }
+    }
+
+    void SetAccentBg(bool on) { accentBg = on; UpdatePanelColor(); SaveSettings(); }
+
     // ---- menu look: same dark panel, accent and type as the widget; rounded on Windows 11 by DWM, by a region elsewhere
     [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
     MenuLook menuLook; Font menuFont, menuBold;
+    readonly List<ToolStripDropDownMenu> menuDropDowns = new List<ToolStripDropDownMenu>();
+
+    // Menus share the widget's opacity (never below 50%, so they stay readable).
+    double MenuOpacity { get { return Math.Max(50, opacity) / 100.0; } }
+
+    void SyncMenus()
+    {
+        double o = MenuOpacity;
+        foreach (var dd in menuDropDowns) if (Math.Abs(dd.Opacity - o) > 0.001) dd.Opacity = o;
+    }
+
+    // Windows 11 rounds and borders an opaque menu itself; set to false if it ever stops doing so for translucent ones.
+    static bool UseDwmFrame(ToolStripDropDownMenu dd) { return true; }
+
+    // Rounded frame: Windows 11 draws it (corners + border in our colour); elsewhere a rounded region.
+    void ApplyMenuFrame(ToolStripDropDownMenu dd)
+    {
+        bool dwm = MenuLook.DwmCorners && UseDwmFrame(dd);
+        if (dd.IsHandleCreated && MenuLook.DwmCorners)
+        {
+            int pref = dwm ? 2 : 1 /*round / don't round*/; DwmSetWindowAttribute(dd.Handle, 33 /*WINDOW_CORNER_PREFERENCE*/, ref pref, 4);
+            Color b = MenuLook.Border; int col = dwm ? (b.R | b.G << 8 | b.B << 16) : unchecked((int)0xFFFFFFFE) /*no border*/;
+            DwmSetWindowAttribute(dd.Handle, 34 /*BORDER_COLOR*/, ref col, 4);
+        }
+        var old = dd.Region;
+        if (dwm) dd.Region = null;
+        else using (var p = MenuLook.Round(new RectangleF(0, 0, dd.Width, dd.Height), 8 * dpi)) dd.Region = new Region(p);
+        if (old != null) old.Dispose();
+        MenuLook.OwnBorder = !dwm;
+    }
     void StyleMenu(ToolStripDropDownMenu dd)
     {
         if (menuLook == null)
@@ -1242,23 +1333,17 @@ sealed class WidgetForm : Form
         dd.Renderer = menuLook; dd.Font = menuFont;
         dd.ShowImageMargin = false; dd.ShowCheckMargin = true; dd.DropShadowEnabled = false;
         int v = (int)Math.Round(5 * dpi); dd.Padding = new Padding(0, v, 0, v);
+        menuDropDowns.Add(dd);
         dd.HandleCreated += delegate
         {
             // Without an owner the popup would get a taskbar button while open; a tool window never does.
             long ex = GetWindowLongPtr(dd.Handle, GWL_EXSTYLE).ToInt64();
             SetWindowLongPtr(dd.Handle, GWL_EXSTYLE, new IntPtr((ex | WS_EX_TOOLWINDOW) & ~0x40000L /*APPWINDOW*/));
-            if (!MenuLook.DwmCorners) return;
-            int pref = 2; DwmSetWindowAttribute(dd.Handle, 33 /*WINDOW_CORNER_PREFERENCE: round*/, ref pref, 4);
-            Color b = MenuLook.Border; int col = b.R | b.G << 8 | b.B << 16;
-            DwmSetWindowAttribute(dd.Handle, 34 /*BORDER_COLOR*/, ref col, 4);
+            int off = 1; DwmSetWindowAttribute(dd.Handle, 3 /*TRANSITIONS_FORCEDISABLED*/, ref off, 4); // no window-open animation
+            ApplyMenuFrame(dd);
         };
-        if (!MenuLook.DwmCorners)
-            dd.SizeChanged += delegate
-            {
-                var old = dd.Region;
-                using (var p = MenuLook.Round(new RectangleF(0, 0, dd.Width, dd.Height), 8 * dpi)) dd.Region = new Region(p);
-                if (old != null) old.Dispose();
-            };
+        dd.Opening += delegate { if (dd.IsHandleCreated) ApplyMenuFrame(dd); };
+        dd.SizeChanged += delegate { ApplyMenuFrame(dd); };
         int ip = (int)Math.Round(3 * dpi);
         foreach (ToolStripItem it in dd.Items)
         {
@@ -1448,6 +1533,7 @@ sealed class WidgetForm : Form
                 else if (k == "clickthrough") clickThrough = v == "1";
                 else if (k == "mini") mini = v == "1";
                 else if (k == "hidden") hidden = v == "1";
+                else if (k == "bg") accentBg = v == "accent";
                 else if (k == "fps") showFps = v == "1";
                 else if (k == "updates") checkUpdates = v != "0";
                 else if (k == "anchor") { if (v.Length == 2 && "TMB".IndexOf(v[0]) >= 0 && "LCR".IndexOf(v[1]) >= 0) anchor = v; }
@@ -1465,7 +1551,7 @@ sealed class WidgetForm : Form
         {
             File.WriteAllLines(iniPath, new[] {
                 "x=" + (Left + M).ToString(CI), "y=" + (Top + M).ToString(CI),
-                "ontop=" + (onTop ? "1" : "0"), "locked=" + (locked ? "1" : "0"), "clickthrough=" + (clickThrough ? "1" : "0"), "mini=" + (mini ? "1" : "0"), "hidden=" + (hidden ? "1" : "0"), "fps=" + (showFps ? "1" : "0"), "updates=" + (checkUpdates ? "1" : "0"), "anchor=" + anchor,
+                "ontop=" + (onTop ? "1" : "0"), "locked=" + (locked ? "1" : "0"), "clickthrough=" + (clickThrough ? "1" : "0"), "mini=" + (mini ? "1" : "0"), "hidden=" + (hidden ? "1" : "0"), "bg=" + (accentBg ? "accent" : "dark"), "fps=" + (showFps ? "1" : "0"), "updates=" + (checkUpdates ? "1" : "0"), "anchor=" + anchor,
                 "scale=" + scale.ToString(CI), "opacity=" + opacity.ToString(CI),
                 "show=" + (showCpu ? "cpu," : "") + (showGpu ? "gpu," : "") + (showRam ? "ram," : "") + (showNet ? "net," : "") + (showDisk ? "disk" : "") });
         }
@@ -1476,9 +1562,23 @@ sealed class WidgetForm : Form
 // Context menu drawn like the widget: dark panel, soft accent highlight, accent check marks.
 sealed class MenuLook : ToolStripProfessionalRenderer
 {
-    public static readonly Color Bg = Color.FromArgb(22, 23, 27), Border = Color.FromArgb(56, 58, 66), Text = Color.FromArgb(232, 233, 236),
-        Dim = Color.FromArgb(128, 131, 140), Sep = Color.FromArgb(44, 46, 53), Accent = Color.FromArgb(0x4F, 0xC3, 0xF7),
-        Hover = Color.FromArgb(46, 0x4F, 0xC3, 0xF7);
+    public static readonly Color Text = Color.FromArgb(232, 233, 236), Dim = Color.FromArgb(150, 152, 160), Accent = Color.FromArgb(0x4F, 0xC3, 0xF7);
+    public static Color Bg = Color.FromArgb(22, 23, 27), Border = Color.FromArgb(56, 58, 66), Sep = Color.FromArgb(44, 46, 53), Hover = Color.FromArgb(46, Accent);
+    public static bool OwnBorder = true;
+
+    // Derives the menu colours from the widget's panel colour.
+    public static void SetBase(Color panel, bool accent)
+    {
+        Bg = Mix(panel, Color.White, 0.015);
+        Border = Mix(panel, Color.White, 0.15);
+        Sep = Mix(panel, Color.White, 0.09);
+        Hover = accent ? Color.FromArgb(34, 255, 255, 255) : Color.FromArgb(46, Accent);
+    }
+
+    static Color Mix(Color a, Color b, double t)
+    {
+        return Color.FromArgb((int)Math.Round(a.R + (b.R - a.R) * t), (int)Math.Round(a.G + (b.G - a.G) * t), (int)Math.Round(a.B + (b.B - a.B) * t));
+    }
     public static readonly bool DwmCorners = IsWin11();
     readonly float dpi;
 
@@ -1520,7 +1620,7 @@ sealed class MenuLook : ToolStripProfessionalRenderer
 
     protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
     {
-        if (DwmCorners) return; // Windows 11 draws a rounded border in our color
+        if (!OwnBorder) return; // Windows 11 draws a rounded border in our color
         var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
         using (var p = Round(new RectangleF(0.5f, 0.5f, e.ToolStrip.Width - 1.5f, e.ToolStrip.Height - 1.5f), 8 * dpi))
         using (var pen = new Pen(Border)) g.DrawPath(pen, p);

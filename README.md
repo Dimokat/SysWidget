@@ -24,12 +24,13 @@ Requires Windows 10 or 11 (uses the .NET Framework that ships with Windows). GPU
 |---|---|
 | Drag | Move it. It snaps to screen edges and docks to them. |
 | Double-click | Open Task Manager |
-| Right-click | Menu: Mini mode, Always on top, Lock position, Click-through, Start with Windows, Position, Show, Size, Opacity, Check for updates |
+| Right-click | Menu: Mini mode, Always on top, Lock position, Click-through, Start with Windows, Position, Show, Size, Opacity, Background, Check for updates |
 | Ctrl + mouse | Interact with it while Click-through is on |
 | Tray icon | Left-click hides/shows the widget, right-click opens the same menu, hover shows a quick summary |
 
 - **Mini mode** turns it into a single line of stats.
 - **Hide widget** (or a left-click on the tray icon) tucks it away while it keeps running in the tray. Starting SysWidget again brings it back.
+- **Background** can be the default dark panel or your Windows accent color (darkened only as much as needed to keep text readable). It follows the accent when you change it.
 - **Show** turns individual sections on and off. Hidden sections aren't polled at all.
 - It checks this repo's releases for updates (about once every 6 hours) and shows a small yellow dot plus an *Update available* menu item when there is one. You can turn this off in the menu.
 
