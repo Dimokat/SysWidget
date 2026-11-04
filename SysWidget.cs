@@ -1159,7 +1159,7 @@ sealed class WidgetForm : Form
     // ------------------------------------------------------------------ menu / settings
     void BuildMenu()
     {
-        menu = new ContextMenuStrip();
+        menu = new ToolMenu();
         var miUpdate = new ToolStripMenuItem("", null, delegate { OpenUrl(updateUrl); }) { Visible = false, Name = "accent" };
         var miUpdSep = new ToolStripSeparator { Visible = false };
         menu.Items.Add(miUpdate); menu.Items.Add(miUpdSep);
@@ -1244,6 +1244,27 @@ sealed class WidgetForm : Form
             foreach (ToolStripItem it in menu.Items) { var mi = it as ToolStripMenuItem; if (mi != null && mi.HasDropDownItems) mi.DropDownDirection = dir; }
         };
         StyleMenu(menu);
+        menuWatch.Tick += delegate { WatchMenu(); };
+        menu.Opened += delegate { menuWatch.Start(); };
+        menu.Closed += delegate { menuWatch.Stop(); };
+    }
+
+    // The widget never takes focus, so Windows doesn't tell the menu when you click another app.
+    // While the menu is open, close it on a click outside it (or Esc) - without stealing focus from games.
+    readonly System.Windows.Forms.Timer menuWatch = new System.Windows.Forms.Timer { Interval = 40 };
+    static bool Down(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; }
+    void WatchMenu()
+    {
+        if (!menu.Visible) { menuWatch.Stop(); return; }
+        bool esc = Down(0x1B);
+        bool click = Down(0x01) || Down(0x02) || Down(0x04); // left, right, middle button
+        if (!esc && !click) return;
+        if (!esc)
+        {
+            Point c = Cursor.Position;
+            foreach (var dd in menuDropDowns) if (dd.Visible && dd.Bounds.Contains(c)) return;
+        }
+        menu.Close(esc ? ToolStripDropDownCloseReason.Keyboard : ToolStripDropDownCloseReason.AppClicked);
     }
 
     // ---- background: near-black, or the Windows accent colour (darkened only as far as white text needs)
@@ -1301,7 +1322,17 @@ sealed class WidgetForm : Form
     void SyncMenus()
     {
         double o = MenuOpacity;
-        foreach (var dd in menuDropDowns) if (Math.Abs(dd.Opacity - o) > 0.001) dd.Opacity = o;
+        foreach (var dd in menuDropDowns)
+            if (Math.Abs(dd.Opacity - o) > 0.001) { dd.Opacity = o; if (dd.IsHandleCreated) MarkToolWindow(dd); }
+    }
+
+    // Without an owner a popup gets a taskbar button while open; a tool window never does. WinForms rewrites
+    // the extended style when a menu turns translucent, so KeepToolWindow also guards every later change.
+    readonly List<KeepToolWindow> toolWindowKeepers = new List<KeepToolWindow>();
+    void MarkToolWindow(ToolStripDropDown dd)
+    {
+        long ex = GetWindowLongPtr(dd.Handle, GWL_EXSTYLE).ToInt64(), want = (ex | WS_EX_TOOLWINDOW) & ~0x40000L /*APPWINDOW*/;
+        if (want != ex) SetWindowLongPtr(dd.Handle, GWL_EXSTYLE, new IntPtr(want));
     }
 
     // Windows 11 rounds and borders an opaque menu itself; set to false if it ever stops doing so for translucent ones.
@@ -1336,13 +1367,12 @@ sealed class WidgetForm : Form
         menuDropDowns.Add(dd);
         dd.HandleCreated += delegate
         {
-            // Without an owner the popup would get a taskbar button while open; a tool window never does.
-            long ex = GetWindowLongPtr(dd.Handle, GWL_EXSTYLE).ToInt64();
-            SetWindowLongPtr(dd.Handle, GWL_EXSTYLE, new IntPtr((ex | WS_EX_TOOLWINDOW) & ~0x40000L /*APPWINDOW*/));
+            toolWindowKeepers.Add(new KeepToolWindow(dd.Handle));
+            MarkToolWindow(dd);
             int off = 1; DwmSetWindowAttribute(dd.Handle, 3 /*TRANSITIONS_FORCEDISABLED*/, ref off, 4); // no window-open animation
             ApplyMenuFrame(dd);
         };
-        dd.Opening += delegate { if (dd.IsHandleCreated) ApplyMenuFrame(dd); };
+        dd.Opening += delegate { if (dd.IsHandleCreated) { MarkToolWindow(dd); ApplyMenuFrame(dd); } };
         dd.SizeChanged += delegate { ApplyMenuFrame(dd); };
         int ip = (int)Math.Round(3 * dpi);
         foreach (ToolStripItem it in dd.Items)
@@ -1556,6 +1586,30 @@ sealed class WidgetForm : Form
                 "show=" + (showCpu ? "cpu," : "") + (showGpu ? "gpu," : "") + (showRam ? "ram," : "") + (showNet ? "net," : "") + (showDisk ? "disk" : "") });
         }
         catch { }
+    }
+}
+
+// The context menu always asks for a tool window, also when WinForms rebuilds its style.
+sealed class ToolMenu : ContextMenuStrip
+{
+    protected override CreateParams CreateParams
+    {
+        get { var cp = base.CreateParams; cp.ExStyle = (cp.ExStyle | 0x80 /*TOOLWINDOW*/) & ~0x40000 /*APPWINDOW*/; return cp; }
+    }
+}
+
+// Keeps WS_EX_TOOLWINDOW on a window whatever later rewrites its extended style.
+sealed class KeepToolWindow : NativeWindow
+{
+    public KeepToolWindow(IntPtr hwnd) { AssignHandle(hwnd); }
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == 0x7C /*WM_STYLECHANGING*/ && (int)m.WParam.ToInt64() == -20 /*GWL_EXSTYLE*/)
+        {
+            int ex = Marshal.ReadInt32(m.LParam, 4); // STYLESTRUCT.styleNew
+            Marshal.WriteInt32(m.LParam, 4, (ex | 0x80 /*TOOLWINDOW*/) & ~0x40000 /*APPWINDOW*/);
+        }
+        base.WndProc(ref m);
     }
 }
 
