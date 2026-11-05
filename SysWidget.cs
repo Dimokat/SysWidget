@@ -103,6 +103,7 @@ static class Nvml
     [DllImport("nvml.dll", CallingConvention = CallingConvention.Cdecl)] public static extern int nvmlInit_v2();
     [DllImport("nvml.dll", CallingConvention = CallingConvention.Cdecl)] public static extern int nvmlShutdown();
     [DllImport("nvml.dll", CallingConvention = CallingConvention.Cdecl)] public static extern int nvmlDeviceGetHandleByIndex_v2(uint index, out IntPtr device);
+    [DllImport("nvml.dll", CallingConvention = CallingConvention.Cdecl)] public static extern int nvmlDeviceGetCount_v2(out uint count);
     [DllImport("nvml.dll", CallingConvention = CallingConvention.Cdecl)] public static extern int nvmlDeviceGetTemperature(IntPtr device, int sensor, out uint temp);
     [DllImport("nvml.dll", CallingConvention = CallingConvention.Cdecl)] public static extern int nvmlDeviceGetUtilizationRates(IntPtr device, out Util util);
     [DllImport("nvml.dll", CallingConvention = CallingConvention.Cdecl)] public static extern int nvmlDeviceGetMemoryInfo(IntPtr device, out Mem mem);
@@ -363,7 +364,6 @@ sealed class WidgetForm : Form
     Font fLabel, fValue, fSmall;
     float scale = 1f; int opacity = 100; bool mini;
     string anchor = ""; Point moveStart, grab;
-    bool showCpu = true, showGpu = true, showRam = true, showNet = true, showDisk = true, showFps = true;
     readonly StringFormat sf = (StringFormat)StringFormat.GenericTypographic.Clone();
     readonly SolidBrush brLabel, brValue, brDim, brWarn, brHot;
     static readonly Color cCpu = Color.FromArgb(0x4F, 0xC3, 0xF7), cGpu = Color.FromArgb(0x81, 0xC7, 0x84),
@@ -374,10 +374,10 @@ sealed class WidgetForm : Form
     // ------------------------------------------------------------------ sensors
     readonly Pdh pdh = new Pdh();
     IntPtr pcCpu, pcTemp, pcDiskR, pcDiskW;
-    readonly Ring hCpu = new Ring(60), hGpu = new Ring(60), hDown = new Ring(60), hUp = new Ring(60), hFps = new Ring(60);
+    readonly Ring hCpu = new Ring(60), hDown = new Ring(60), hUp = new Ring(60), hFps = new Ring(60);
     FpsCounter fps; float fpsVal; string fpsApp = ""; int fpsPid = -1; readonly int ownPid = Process.GetCurrentProcess().Id;
     float cpu, cpuTemp = float.NaN, ramUsed, ramTotal, diskR, diskW, down, up;
-    bool nvOk, gpuIdle; IntPtr nvDev; float gpuLoad, gpuTemp = float.NaN, gpuPower, vramUsed, vramTotal;
+    List<Gpu> gpus = new List<Gpu>();
     List<NetworkInterface> nics = new List<NetworkInterface>(); string nicKey = ""; long lastRx = -1, lastTx = -1;
     readonly Stopwatch netClock = new Stopwatch();
     List<DriveStat> drives = new List<DriveStat>();
@@ -557,7 +557,7 @@ sealed class WidgetForm : Form
         pdh.Dispose();
         if (fps != null) fps.Dispose();
         if (tray != null) { tray.Visible = false; tray.Dispose(); }
-        try { if (nvOk) Nvml.nvmlShutdown(); } catch { }
+        Gpus.Shutdown();
         base.OnFormClosed(e);
     }
 
@@ -579,8 +579,18 @@ sealed class WidgetForm : Form
         catch { }
         pcDiskR = pdh.Add(@"\PhysicalDisk(_Total)\Disk Read Bytes/sec");
         pcDiskW = pdh.Add(@"\PhysicalDisk(_Total)\Disk Write Bytes/sec");
+        gpus = Gpus.Enumerate();
+        Gpus.AttachNvml(gpus); Gpus.AttachAdl(gpus);
+        foreach (var g in gpus)
+        {
+            if (g.NvDev != IntPtr.Zero) continue; // NVML reports memory itself
+            string inst = Gpus.PdhInstance(g);
+            g.PcDedicated = pdh.Add(@"\GPU Adapter Memory(" + inst + @")\Dedicated Usage");
+            if (g.Integrated) g.PcShared = pdh.Add(@"\GPU Adapter Memory(" + inst + @")\Shared Usage");
+            g.MemTotal = g.Integrated ? g.DedicatedTotal + g.SharedTotal : g.DedicatedTotal;
+        }
+        NormalizeLayout();
         pdh.Collect();
-        try { nvOk = Nvml.nvmlInit_v2() == 0 && Nvml.nvmlDeviceGetHandleByIndex_v2(0, out nvDev) == 0; } catch { nvOk = false; }
         RefreshNics(); RefreshDrives(); netClock.Start();
         fps = new FpsCounter(); fps.Start();
     }
@@ -617,26 +627,28 @@ sealed class WidgetForm : Form
         if (GlobalMemoryStatusEx(ms)) { ramTotal = (float)(ms.ullTotalPhys / GB); ramUsed = (float)((ms.ullTotalPhys - ms.ullAvailPhys) / GB); }
         v = Pdh.Get(pcDiskR); diskR = double.IsNaN(v) ? 0 : (float)v;
         v = Pdh.Get(pcDiskW); diskW = double.IsNaN(v) ? 0 : (float)v;
-        if (showNet) SampleNet();
-        if (showGpu) SampleGpu(onAC);
-        if (showFps) SampleFps();
+        if (IsLive("net")) SampleNet();
+        SampleGpus(onAC);
+        if (IsLive("fps")) SampleFps();
     }
 
-    void SampleGpu(bool onAC)
+    void SampleGpus(bool onAC)
     {
-        if (!nvOk) return;
-        // On battery the dGPU is normally powered down; querying it would wake it, so don't.
-        if (!onAC) { gpuIdle = true; hGpu.Add(0); return; }
-        gpuIdle = false;
-        try
+        foreach (var g in gpus)
         {
-            Nvml.Util u; if (Nvml.nvmlDeviceGetUtilizationRates(nvDev, out u) == 0) gpuLoad = u.gpu;
-            uint t; gpuTemp = Nvml.nvmlDeviceGetTemperature(nvDev, 0, out t) == 0 ? t : float.NaN;
-            uint mw; if (Nvml.nvmlDeviceGetPowerUsage(nvDev, out mw) == 0) gpuPower = mw / 1000f;
-            Nvml.Mem m; if (Nvml.nvmlDeviceGetMemoryInfo(nvDev, out m) == 0) { vramUsed = (float)(m.used / GB); vramTotal = (float)(m.total / GB); }
+            if (!IsLive("gpu:" + g.Key)) continue;
+            // A laptop's discrete GPU is normally powered down on battery; querying it would wake it, so don't.
+            g.Idle = !onAC && !g.Integrated;
+            if (g.Idle) { g.History.Add(0); continue; }
+            if (g.NvDev != IntPtr.Zero) Gpus.SampleNvml(g);
+            else
+            {
+                if (!Gpus.SampleAdl(g)) Gpus.SampleKmt(g);
+                double ded = Pdh.Get(g.PcDedicated), sh = Pdh.Get(g.PcShared);
+                if (!double.IsNaN(ded)) g.MemUsed = (float)(ded + (double.IsNaN(sh) ? 0 : sh));
+            }
+            g.History.Add(g.Load);
         }
-        catch { }
-        hGpu.Add(gpuLoad);
     }
 
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out int pid);
@@ -790,7 +802,7 @@ sealed class WidgetForm : Form
 
     float Draw(Graphics g)
     {
-        float x = pad, w = W - 2 * pad, y = pad, gh = 26 * s;
+        float x = pad, w = W - 2 * pad, y = pad;
 
         if (H > 0)
             using (var path = PanelPath())
@@ -812,64 +824,82 @@ sealed class WidgetForm : Form
 
         if (mini) { MiniLayout(g, true); return pad * 1.2f + 17 * s; }
 
-        float gap = 0;
-        // CPU
-        if (showCpu)
+        float gh = (compact ? 16 : 26) * s, sgap = (compact ? 7 : 11) * s, gap = 0;
+        hdrH = (compact ? 15.5f : 17) * s; smallH = (compact ? 12.5f : 14) * s;
+        foreach (var id in Sections())
         {
-        Header(g, ref y, "CPU", cCpu, Pct(cpu), brValue, TempText(cpuTemp), TempBrush(cpuTemp));
-        y += 3 * s; Graph(g, x, y, w, gh, hCpu, 100, cCpu, null, Color.Empty); gap = 11 * s; y += gh + gap;
-        }
-
-        // GPU (NVIDIA)
-        if (nvOk && showGpu)
-        {
-            if (gpuIdle) Header(g, ref y, "GPU", cGpu, "idle (on battery)", brDim, null, null);
-            else Header(g, ref y, "GPU", cGpu, Pct(gpuLoad), brValue, TempText(gpuTemp), TempBrush(gpuTemp));
-            if (gpuIdle) y += 14 * s;
-            else Small(g, ref y, string.Format(CI, "VRAM {0:0.0} / {1:0.0} GB", vramUsed, vramTotal), string.Format(CI, "{0:0.0} W", gpuPower));
-            y += 3 * s; Graph(g, x, y, w, gh, hGpu, 100, cGpu, null, Color.Empty); gap = 11 * s; y += gh + gap;
-        }
-
-        // FPS of the app in front
-        if (showFps)
-        {
-            Header(g, ref y, "FPS", cFps, FpsText(), fps != null && fps.Error == null ? brValue : brDim, null, null);
-            Small(g, ref y, fpsApp == "" ? "no app in focus" : fpsApp, "");
-            y += 3 * s; Graph(g, x, y, w, gh, hFps, Math.Max(60f, hFps.Max()), cFps, null, Color.Empty); gap = 11 * s; y += gh + gap;
-        }
-
-        // RAM
-        if (showRam)
-        {
-        Header(g, ref y, "RAM", cRam, string.Format(CI, "{0:0.0} / {1:0.0} GB", ramUsed, ramTotal), brValue, null, null);
-        y += 5 * s; Bar(g, x, y, w, 5 * s, ramTotal > 0 ? ramUsed / ramTotal : 0, cRam); gap = 12 * s; y += 5 * s + gap;
-        }
-
-        // Network
-        if (showNet)
-        {
-        Header(g, ref y, "NET", cDown, "↓ " + Rate(down), brValue, "↑ " + Rate(up), brLabel);
-        y += 3 * s;
-        float netMax = Math.Max(64 * 1024f, Math.Max(hDown.Max(), hUp.Max()));
-        Graph(g, x, y, w, gh, hDown, netMax, cDown, hUp, cUp); gap = 11 * s; y += gh + gap;
-        }
-
-        // Disks
-        if (showDisk)
-        {
-        Header(g, ref y, "DISK", cDisk, "R " + Rate(diskR), brValue, "W " + Rate(diskW), brValue);
-        y += 4 * s; gap = 0;
-        foreach (var d in drives)
-        {
-            Small(g, ref y, d.Name, string.Format(CI, "{0:0} GB free of {1:0}", d.Free / GB, d.Total / GB));
-            y += 1 * s;
-            double frac = d.Total > 0 ? 1 - d.Free / d.Total : 0;
-            Bar(g, x, y, w, 4 * s, (float)frac, d.Total > 0 && d.Free / d.Total < 0.1 ? cHot : cDisk);
-            gap = 7 * s; y += 4 * s + gap;
-        }
+            if (!IsShown(id, false)) continue;
+            gap = DrawSection(g, id, x, w, ref y, gh, sgap);
+            y += gap;
         }
         return y - gap + pad;
     }
+
+    float hdrH = 17, smallH = 14;
+
+    float DrawSection(Graphics g, string id, float x, float w, ref float y, float gh, float sgap)
+    {
+        Color c = ColorOf(id);
+        switch (id)
+        {
+            case "cpu":
+                Header(g, ref y, "CPU", c, Pct(cpu), brValue, Opt(id, "temp") ? TempText(cpuTemp) : null, TempBrush(cpuTemp));
+                if (Opt(id, "graph")) { y += 3 * s; Graph(g, x, y, w, gh, hCpu, 100, c, null, Color.Empty); y += gh; }
+                return sgap;
+            case "fps":
+                Header(g, ref y, "FPS", c, FpsText(), fps != null && fps.Error == null ? brValue : brDim, null, null);
+                if (Opt(id, "app")) Small(g, ref y, fpsApp == "" ? "no app in focus" : fpsApp, "");
+                if (Opt(id, "graph")) { y += 3 * s; Graph(g, x, y, w, gh, hFps, Math.Max(60f, hFps.Max()), c, null, Color.Empty); y += gh; }
+                return sgap;
+            case "ram":
+                Header(g, ref y, "RAM", c, string.Format(CI, "{0:0.0} / {1:0.0} GB", ramUsed, ramTotal), brValue, null, null);
+                if (Opt(id, "bar")) { y += 5 * s; Bar(g, x, y, w, 5 * s, ramTotal > 0 ? ramUsed / ramTotal : 0, c); y += 5 * s; return sgap + s; }
+                return sgap;
+            case "net":
+            {
+                bool upOn = Opt(id, "up");
+                Header(g, ref y, "NET", c, "\u2193 " + Rate(down), brValue, upOn ? "\u2191 " + Rate(up) : null, brLabel);
+                if (Opt(id, "graph"))
+                {
+                    y += 3 * s;
+                    float netMax = Math.Max(64 * 1024f, upOn ? Math.Max(hDown.Max(), hUp.Max()) : hDown.Max());
+                    Graph(g, x, y, w, gh, hDown, netMax, c, upOn ? hUp : null, ColorOf("net.up")); y += gh;
+                }
+                return sgap;
+            }
+            case "disk":
+            {
+                bool rw = Opt(id, "rw");
+                Header(g, ref y, "DISK", c, rw ? "R " + Rate(diskR) : null, brValue, rw ? "W " + Rate(diskW) : null, brValue);
+                if (!Opt(id, "free") || drives.Count == 0) return sgap;
+                y += 4 * s; float dg = 0;
+                foreach (var dr in drives)
+                {
+                    Small(g, ref y, dr.Name, string.Format(CI, "{0:0} GB free of {1:0}", dr.Free / GB, dr.Total / GB));
+                    y += 1 * s;
+                    double frac = dr.Total > 0 ? 1 - dr.Free / dr.Total : 0;
+                    Bar(g, x, y, w, 4 * s, (float)frac, dr.Total > 0 && dr.Free / dr.Total < 0.1 ? cHot : c);
+                    dg = (compact ? 5 : 7) * s; y += 4 * s + dg;
+                }
+                y -= dg; return sgap;
+            }
+        }
+        var gpu = GpuById(id); if (gpu == null) return 0;
+        string label = gpu.Label + " \u00B7 " + gpu.Name;
+        bool temp = Opt(id, "temp") && HasTemp(gpu);
+        if (gpu.Idle) Header(g, ref y, label, c, "idle (on battery)", brDim, null, null);
+        else Header(g, ref y, label, c, Pct(gpu.Load), brValue, temp ? TempText(gpu.Temp) : null, TempBrush(gpu.Temp));
+        // The detail row's presence depends only on settings and what the GPU can report, so the height stays put.
+        bool mem = Opt(id, "mem") && gpu.MemTotal > 0, pw = Opt(id, "power") && HasPower(gpu);
+        if (mem || pw)
+            Small(g, ref y, mem && !gpu.Idle ? string.Format(CI, "{0} {1:0.0} / {2:0.0} GB", gpu.MemLabel, gpu.MemUsed / GB, gpu.MemTotal / GB) : "",
+                  pw && !gpu.Idle && !float.IsNaN(gpu.Power) ? string.Format(CI, "{0:0.0} W", gpu.Power) : "");
+        if (Opt(id, "graph")) { y += 3 * s; Graph(g, x, y, w, gh, gpu.History, 100, c, null, Color.Empty); y += gh; }
+        return sgap;
+    }
+
+    static bool HasTemp(Gpu g) { return g.NvDev != IntPtr.Zero || g.AdlIndex >= 0; }
+    static bool HasPower(Gpu g) { return g.NvDev != IntPtr.Zero || g.AdlPower; }
 
     // ---- mini mode: one line, fixed-width slots so the strip doesn't jitter ----
     int MiniWidth()
@@ -881,22 +911,42 @@ sealed class WidgetForm : Form
     {
         float x = pad * 0.9f, y = pad * 0.6f; bool any = false;
         string tTemp = "100\u00B0C";
-        if (showCpu)
-            Seg(g, draw, ref x, y, ref any, "CPU", cCpu, Pct(cpu), brValue, "100%", TempText(cpuTemp), TempBrush(cpuTemp), pcTemp != IntPtr.Zero ? tTemp : null);
-        if (nvOk && showGpu)
+        foreach (var id in Sections())
         {
-            if (gpuIdle) Seg(g, draw, ref x, y, ref any, "GPU", cGpu, "idle", brDim, "100%", null, null, tTemp);
-            else Seg(g, draw, ref x, y, ref any, "GPU", cGpu, Pct(gpuLoad), brValue, "100%", TempText(gpuTemp), TempBrush(gpuTemp), tTemp);
+            if (!IsShown(id, true)) continue;
+            Color c = ColorOf(id);
+            switch (id)
+            {
+                case "cpu":
+                {
+                    bool t = Opt(id, "temp") && pcTemp != IntPtr.Zero;
+                    Seg(g, draw, ref x, y, ref any, "CPU", c, Pct(cpu), brValue, "100%", t ? TempText(cpuTemp) : null, TempBrush(cpuTemp), t ? tTemp : null);
+                    break;
+                }
+                case "fps": Seg(g, draw, ref x, y, ref any, "FPS", c, FpsText(), brValue, "999", null, null, null); break;
+                case "ram": Seg(g, draw, ref x, y, ref any, "RAM", c, string.Format(CI, "{0:0.0} GB", ramUsed), brValue, "99.9 GB", null, null, null); break;
+                case "net":
+                {
+                    bool upOn = Opt(id, "up");
+                    Seg(g, draw, ref x, y, ref any, "NET", c, "\u2193 " + Rate(down), brValue, "\u2193 999 MB/s", upOn ? "\u2191 " + Rate(up) : null, brLabel, upOn ? "\u2191 999 MB/s" : null);
+                    break;
+                }
+                case "disk":
+                    if (Opt(id, "free"))
+                        foreach (var dr in drives)
+                            Seg(g, draw, ref x, y, ref any, dr.Name, c, string.Format(CI, "{0:0} GB", dr.Free / GB), brValue, "9999 GB", null, null, null);
+                    else Seg(g, draw, ref x, y, ref any, "DISK", c, "R " + Rate(diskR), brValue, "R 999 MB/s", "W " + Rate(diskW), brValue, "W 999 MB/s");
+                    break;
+                default:
+                {
+                    var gp = GpuById(id); if (gp == null) break;
+                    bool t = Opt(id, "temp") && HasTemp(gp);
+                    if (gp.Idle) Seg(g, draw, ref x, y, ref any, gp.Label, c, "idle", brDim, "100%", null, null, t ? tTemp : null);
+                    else Seg(g, draw, ref x, y, ref any, gp.Label, c, Pct(gp.Load), brValue, "100%", t ? TempText(gp.Temp) : null, TempBrush(gp.Temp), t ? tTemp : null);
+                    break;
+                }
+            }
         }
-        if (showFps)
-            Seg(g, draw, ref x, y, ref any, "FPS", cFps, FpsText(), brValue, "999", null, null, null);
-        if (showRam)
-            Seg(g, draw, ref x, y, ref any, "RAM", cRam, string.Format(CI, "{0:0.0} GB", ramUsed), brValue, "99.9 GB", null, null, null);
-        if (showNet)
-            Seg(g, draw, ref x, y, ref any, "NET", cDown, "\u2193 " + Rate(down), brValue, "\u2193 999 MB/s", "\u2191 " + Rate(up), brLabel, "\u2191 999 MB/s");
-        if (showDisk)
-            foreach (var d in drives)
-                Seg(g, draw, ref x, y, ref any, d.Name, cDisk, string.Format(CI, "{0:0} GB", d.Free / GB), brValue, "9999 GB", null, null, null);
         return x;
     }
 
@@ -933,7 +983,7 @@ sealed class WidgetForm : Form
         float right = W - pad;
         if (v2 != null) { float w2 = g.MeasureString(v2, fValue, PointF.Empty, sf).Width; Txt(g, v2, fValue, b2, right - w2, y, sf); right -= w2 + 10 * s; }
         if (v1 != null) { float w1 = g.MeasureString(v1, fValue, PointF.Empty, sf).Width; Txt(g, v1, fValue, b1, right - w1, y, sf); }
-        y += 17 * s;
+        y += hdrH;
     }
 
     void Small(Graphics g, ref float y, string left, string right)
@@ -941,7 +991,7 @@ sealed class WidgetForm : Form
         Txt(g, left, fSmall, brDim, pad, y, sf);
         float w = g.MeasureString(right, fSmall, PointF.Empty, sf).Width;
         Txt(g, right, fSmall, brLabel, W - pad - w, y, sf);
-        y += 14 * s;
+        y += smallH;
     }
 
     void Graph(Graphics g, float x, float y, float w, float h, Ring a, float max, Color ca, Ring b, Color cb)
@@ -1156,6 +1206,168 @@ sealed class WidgetForm : Form
         return new Point(wa.Right - W - (int)(16 * s), wa.Top + (int)(16 * s));
     }
 
+    // ------------------------------------------------------------------ layout model
+    // Sections have ids: cpu, fps, ram, net, disk and gpu:<vendor-device>. The order list also keeps GPUs
+    // that aren't present right now (an eGPU, a GPU disabled in BIOS) so they return to their place.
+    List<string> order = new List<string>();
+    readonly HashSet<string> hiddenFull = new HashSet<string>(), hiddenMini = new HashSet<string>(), detailsOff = new HashSet<string>();
+    readonly Dictionary<string, Color> colors = new Dictionary<string, Color>();
+    bool compact, hasHide, hasMiniHide, legacyHideGpus, legacyHideGpusMini; string legacyShow, legacyFps;
+    static readonly string[] BaseSections = { "cpu", "fps", "ram", "net", "disk" };
+    static readonly Color[] GpuPalette = { Color.FromArgb(0x81, 0xC7, 0x84), Color.FromArgb(0x4D, 0xB6, 0xAC), Color.FromArgb(0xAE, 0xD5, 0x81), Color.FromArgb(0x64, 0xB5, 0xF6) };
+    SettingsWindow settings;
+
+    void NormalizeLayout()
+    {
+        var all = new List<string> { "cpu" };
+        foreach (var g in gpus) all.Add("gpu:" + g.Key);
+        all.AddRange(new[] { "fps", "ram", "net", "disk" });
+        order = order.FindAll(id => id.StartsWith("gpu:") || Array.IndexOf(BaseSections, id) >= 0);
+        for (int i = 0; i < all.Count; i++)
+        {
+            if (order.Contains(all[i])) continue;
+            int at = i == 0 ? 0 : order.IndexOf(all[i - 1]) + 1;
+            order.Insert(Math.Max(0, Math.Min(at, order.Count)), all[i]);
+        }
+        foreach (var g in gpus)
+        {
+            if (legacyHideGpus) hiddenFull.Add("gpu:" + g.Key);
+            if (legacyHideGpusMini) hiddenMini.Add("gpu:" + g.Key);
+        }
+        legacyHideGpus = legacyHideGpusMini = false;
+        // never end up with an empty widget
+        foreach (var set in new[] { hiddenFull, hiddenMini })
+        {
+            bool any = false; foreach (var id in Sections()) if (!set.Contains(id)) any = true;
+            if (!any) set.Remove("cpu");
+        }
+    }
+
+    internal IEnumerable<string> Sections() { foreach (var id in order) if (Available(id)) yield return id; }
+    bool Available(string id) { return !id.StartsWith("gpu:") || GpuById(id) != null; }
+    Gpu GpuById(string id) { foreach (var g in gpus) if ("gpu:" + g.Key == id) return g; return null; }
+    bool IsLive(string id) { return Available(id) && IsShown(id, mini); }
+
+    internal bool IsShown(string id, bool inMini) { return !(inMini ? hiddenMini : hiddenFull).Contains(id); }
+
+    // Returns false (and changes nothing) when it would hide the last visible section.
+    internal bool SetShown(string id, bool inMini, bool on)
+    {
+        var set = inMini ? hiddenMini : hiddenFull;
+        if (!on)
+        {
+            int left = 0; foreach (var sid in Sections()) if (sid != id && !set.Contains(sid)) left++;
+            if (left == 0) return false;
+            set.Add(id);
+        }
+        else { set.Remove(id); if (id == "net") lastRx = lastTx = -1; }
+        LayoutChanged(); return true;
+    }
+
+    internal bool Opt(string id, string detail) { return !detailsOff.Contains(id + "." + detail); }
+    internal void SetOpt(string id, string detail, bool on)
+    {
+        if (on) detailsOff.Remove(id + "." + detail); else detailsOff.Add(id + "." + detail);
+        LayoutChanged();
+    }
+
+    internal string Title(string id)
+    {
+        switch (id) { case "cpu": return "CPU"; case "fps": return "FPS"; case "ram": return "RAM"; case "net": return "Network"; case "disk": return "Disks"; }
+        var g = GpuById(id); return g == null ? id : g.Label + " \u00B7 " + g.Name;
+    }
+
+    internal string[][] DetailsOf(string id)
+    {
+        switch (id)
+        {
+            case "cpu": return new[] { new[] { "temp", "Temperature" }, new[] { "graph", "Graph" } };
+            case "fps": return new[] { new[] { "app", "App name" }, new[] { "graph", "Graph" } };
+            case "ram": return new[] { new[] { "bar", "Usage bar" } };
+            case "net": return new[] { new[] { "up", "Upload" }, new[] { "graph", "Graph" } };
+            case "disk": return new[] { new[] { "rw", "Read / write" }, new[] { "free", "Free space" } };
+        }
+        var g = GpuById(id); var l = new List<string[]>();
+        if (g != null && HasTemp(g)) l.Add(new[] { "temp", "Temperature" });
+        l.Add(new[] { "mem", "Memory" });
+        if (g != null && HasPower(g)) l.Add(new[] { "power", "Power" });
+        l.Add(new[] { "graph", "Graph" });
+        return l.ToArray();
+    }
+
+    internal string[][] ColorKeys(string id)
+    {
+        if (id == "net") return new[] { new[] { "net", "Download" }, new[] { "net.up", "Upload" } };
+        return new[] { new[] { id, null } };
+    }
+
+    internal Color ColorOf(string key) { Color c; return colors.TryGetValue(key, out c) ? c : DefaultColor(key); }
+    Color DefaultColor(string key)
+    {
+        switch (key) { case "cpu": return cCpu; case "fps": return cFps; case "ram": return cRam; case "net": return cDown; case "net.up": return cUp; case "disk": return cDisk; }
+        int i = gpus.FindIndex(g => "gpu:" + g.Key == key);
+        return GpuPalette[Math.Max(0, i) % GpuPalette.Length];
+    }
+    internal void SetColor(string key, Color c)
+    {
+        if (c.ToArgb() == DefaultColor(key).ToArgb()) colors.Remove(key); else colors[key] = c;
+        LayoutChanged();
+    }
+    string ColorsText()
+    {
+        var l = new List<string>(); foreach (var kv in colors) l.Add(kv.Key + ":" + (kv.Value.ToArgb() & 0xFFFFFF).ToString("X6"));
+        return string.Join(",", l);
+    }
+
+    // Moves a section past its nearest present neighbour (absent GPUs keep their slot).
+    internal void MoveSection(string id, int dir)
+    {
+        var present = new List<string>(Sections());
+        int i = present.IndexOf(id), j = i + dir; if (i < 0 || j < 0 || j >= present.Count) return;
+        int a = order.IndexOf(id), b = order.IndexOf(present[j]);
+        order[a] = present[j]; order[b] = id;
+        LayoutChanged();
+    }
+
+    internal bool Compact { get { return compact; } set { compact = value; LayoutChanged(); } }
+    internal bool AccentBackground { get { return accentBg; } set { SetAccentBg(value); } }
+    internal int SizePercent { get { return (int)Math.Round(scale * 100); } set { scale = value / 100f; ApplyScale(); LayoutChanged(); } }
+    internal int OpacityPercent { get { return opacity; } set { opacity = value; Render(); SaveSettings(); } }
+
+    internal void ResetLayout()
+    {
+        hiddenFull.Clear(); hiddenMini.Clear(); detailsOff.Clear(); colors.Clear(); compact = false; order.Clear();
+        NormalizeLayout(); LayoutChanged();
+    }
+
+    internal void LayoutChanged()
+    {
+        Relayout(); SaveSettings();
+        if (settings != null && !settings.IsDisposed) settings.Invalidate();
+    }
+
+    void OpenSettings()
+    {
+        if (settings == null || settings.IsDisposed)
+        {
+            settings = new SettingsWindow(this, dpi);
+            try { settings.Icon = AppIcon(new Size(32, 32)); } catch { }
+            settings.Reflow(); // final height, before placing it
+            // Next to the widget (right side if there's room, else left), so the widget never covers it.
+            var b = Body; var wa = Screen.FromRectangle(b).WorkingArea; int gap = (int)Math.Round(12 * dpi);
+            int x = b.Right + gap;
+            if (x + settings.Width > wa.Right) x = b.Left - gap - settings.Width;
+            if (x < wa.Left) x = Math.Max(wa.Left, Math.Min(wa.Right - settings.Width, b.Left + (b.Width - settings.Width) / 2));
+            int y = Math.Max(wa.Top, Math.Min(b.Top, wa.Bottom - settings.Height));
+            settings.Location = new Point(x, y);
+            settings.TopMost = new Rectangle(settings.Location, settings.Size).IntersectsWith(b); // no room beside it: stay above the widget
+            settings.FormClosed += delegate { settings = null; };
+            settings.Show();
+        }
+        if (settings.WindowState == FormWindowState.Minimized) settings.WindowState = FormWindowState.Normal;
+        settings.Activate();
+    }
+
     // ------------------------------------------------------------------ menu / settings
     void BuildMenu()
     {
@@ -1181,12 +1393,8 @@ sealed class WidgetForm : Form
         menu.Items.Add(miTop); menu.Items.Add(miLock); menu.Items.Add(miClick); menu.Items.Add(miStartup);
         menu.Closed += delegate { CheckInteractive(); };
         var show = new ToolStripMenuItem("Show");
-        AddToggle(show, "CPU", delegate { return showCpu; }, delegate(bool v) { showCpu = v; });
-        if (nvOk) AddToggle(show, "GPU", delegate { return showGpu; }, delegate(bool v) { showGpu = v; });
-        AddToggle(show, "FPS", delegate { return showFps; }, delegate(bool v) { showFps = v; });
-        AddToggle(show, "RAM", delegate { return showRam; }, delegate(bool v) { showRam = v; });
-        AddToggle(show, "Network", delegate { return showNet; }, delegate(bool v) { showNet = v; if (v) lastRx = lastTx = -1; });
-        AddToggle(show, "Disks", delegate { return showDisk; }, delegate(bool v) { showDisk = v; });
+        show.DropDownItems.Add(new ToolStripMenuItem("\u2026")); // filled when opened, from the current order and mode
+        show.DropDownOpening += delegate { FillShowMenu(show); };
         show.DropDown.Closing += (o, e) => { if (e.CloseReason == ToolStripDropDownCloseReason.ItemClicked) e.Cancel = true; };
         var size = new ToolStripMenuItem("Size");
         foreach (int pct in new[] { 75, 90, 100, 115, 130, 150, 175 })
@@ -1225,6 +1433,7 @@ sealed class WidgetForm : Form
         };
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(pos); menu.Items.Add(show); menu.Items.Add(size); menu.Items.Add(op); menu.Items.Add(bgm);
+        menu.Items.Add(new ToolStripMenuItem("Settings\u2026", null, delegate { OpenSettings(); }));
         menu.Items.Add(new ToolStripSeparator());
         var miChk = new ToolStripMenuItem("Check for updates", null, delegate { checkUpdates = !checkUpdates; SaveSettings(); if (checkUpdates) CheckForUpdate(); });
         menu.Opening += delegate { miChk.Checked = checkUpdates; };
@@ -1307,6 +1516,7 @@ sealed class WidgetForm : Form
         panelBg = c; MenuLook.SetBase(c, accentBg);
         if (IsHandleCreated && !hidden) Render();
         foreach (var dd in menuDropDowns) { dd.BackColor = MenuLook.Bg; if (dd.IsHandleCreated) ApplyMenuFrame(dd); }
+        if (settings != null && !settings.IsDisposed) settings.ApplyFrameColors();
     }
 
     void SetAccentBg(bool on) { accentBg = on; UpdatePanelColor(); SaveSettings(); }
@@ -1374,14 +1584,35 @@ sealed class WidgetForm : Form
         };
         dd.Opening += delegate { if (dd.IsHandleCreated) { MarkToolWindow(dd); ApplyMenuFrame(dd); } };
         dd.SizeChanged += delegate { ApplyMenuFrame(dd); };
-        int ip = (int)Math.Round(3 * dpi);
         foreach (ToolStripItem it in dd.Items)
         {
             var mi = it as ToolStripMenuItem; if (mi == null) continue;
-            mi.Padding = new Padding(mi.Padding.Left, ip, mi.Padding.Right + ip, ip);
-            if (mi.Name == "accent") mi.Font = menuBold;
+            StyleItem(mi);
             if (mi.HasDropDownItems) StyleMenu((ToolStripDropDownMenu)mi.DropDown);
         }
+    }
+
+    void StyleItem(ToolStripMenuItem mi)
+    {
+        int ip = (int)Math.Round(3 * dpi);
+        mi.Padding = new Padding(4, ip, 4 + ip, ip);
+        if (mi.Name == "accent") mi.Font = menuBold;
+    }
+
+    // "Show" lists the sections in their current order and toggles them for the mode you're in (full or mini).
+    void FillShowMenu(ToolStripMenuItem show)
+    {
+        show.DropDownItems.Clear();
+        foreach (var sid in Sections())
+        {
+            string id = sid; bool inMini = mini;
+            var it = new ToolStripMenuItem(Title(id)) { Checked = IsShown(id, inMini) };
+            it.Click += delegate { if (SetShown(id, inMini, !IsShown(id, inMini))) it.Checked = IsShown(id, inMini); };
+            StyleItem(it); show.DropDownItems.Add(it);
+        }
+        show.DropDownItems.Add(new ToolStripSeparator());
+        var more = new ToolStripMenuItem("More options\u2026", null, delegate { show.DropDown.Close(); menu.Close(); OpenSettings(); });
+        StyleItem(more); show.DropDownItems.Add(more);
     }
 
     // ---- tray icon: left click hides/shows the widget, right click opens the same menu
@@ -1419,7 +1650,7 @@ sealed class WidgetForm : Form
         if (tray == null) return;
         var sb = new StringBuilder("SysWidget");
         sb.Append("\nCPU ").Append(cpu.ToString("0", CI)).Append('%');
-        if (nvOk && !gpuIdle) sb.Append("  \u00B7  GPU ").Append(gpuLoad.ToString("0", CI)).Append('%');
+        foreach (var g in gpus) if (!g.Idle && IsLive("gpu:" + g.Key)) sb.Append("  \u00B7  ").Append(g.Label).Append(' ').Append(g.Load.ToString("0", CI)).Append('%');
         sb.Append("\nRAM ").Append(ramUsed.ToString("0.0", CI)).Append(" / ").Append(ramTotal.ToString("0", CI)).Append(" GB");
         if (fpsVal > 0) sb.Append("  \u00B7  ").Append(fpsVal.ToString("0", CI)).Append(" FPS");
         if (updateTag != null) sb.Append("\nUpdate ").Append(updateTag).Append(" available");
@@ -1490,22 +1721,6 @@ sealed class WidgetForm : Form
         SaveSettings();
     }
 
-    void AddToggle(ToolStripMenuItem parent, string text, Func<bool> get, Action<bool> set)
-    {
-        var it = new ToolStripMenuItem(text);
-        it.Click += delegate
-        {
-            bool v = !get();
-            if (!v && CountShown() <= 1) return; // keep at least one section visible
-            set(v); Relayout(); SaveSettings();
-            it.Checked = get();
-        };
-        parent.DropDownOpening += delegate { it.Checked = get(); };
-        parent.DropDownItems.Add(it);
-    }
-
-    int CountShown() { return (showCpu ? 1 : 0) + (showGpu && nvOk ? 1 : 0) + (showRam ? 1 : 0) + (showNet ? 1 : 0) + (showDisk ? 1 : 0) + (showFps ? 1 : 0); }
-
     static void OpenTaskManager()
     {
         try { Process.Start(new ProcessStartInfo("taskmgr.exe") { UseShellExecute = true }); } catch { }
@@ -1564,15 +1779,41 @@ sealed class WidgetForm : Form
                 else if (k == "mini") mini = v == "1";
                 else if (k == "hidden") hidden = v == "1";
                 else if (k == "bg") accentBg = v == "accent";
-                else if (k == "fps") showFps = v == "1";
+                else if (k == "fps") legacyFps = v;
+                else if (k == "order") order = Split(v);
+                else if (k == "hide") { hiddenFull.Clear(); hiddenFull.UnionWith(Split(v)); hasHide = true; }
+                else if (k == "minihide") { hiddenMini.Clear(); hiddenMini.UnionWith(Split(v)); hasMiniHide = true; }
+                else if (k == "off") { detailsOff.Clear(); detailsOff.UnionWith(Split(v)); }
+                else if (k == "compact") compact = v == "1";
+                else if (k == "colors")
+                    foreach (var kv in Split(v))
+                    {
+                        int c = kv.LastIndexOf(':'); int rgb;
+                        if (c > 0 && int.TryParse(kv.Substring(c + 1), NumberStyles.HexNumber, CI, out rgb)) colors[kv.Substring(0, c)] = Color.FromArgb(255, Color.FromArgb(rgb));
+                    }
                 else if (k == "updates") checkUpdates = v != "0";
                 else if (k == "anchor") { if (v.Length == 2 && "TMB".IndexOf(v[0]) >= 0 && "LCR".IndexOf(v[1]) >= 0) anchor = v; }
                 else if (k == "scale") { float f; if (float.TryParse(v, NumberStyles.Float, CI, out f) && f >= 0.5f && f <= 3f) scale = f; }
                 else if (k == "opacity") { if (int.TryParse(v, out n) && n >= 10 && n <= 100) opacity = n; }
-                else if (k == "show") { showCpu = v.Contains("cpu"); showGpu = v.Contains("gpu"); showRam = v.Contains("ram"); showNet = v.Contains("net"); showDisk = v.Contains("disk"); }
+                else if (k == "show") legacyShow = v;
             }
         }
         catch { }
+        // Settings from before sections were configurable: show=cpu,gpu,ram,net,disk and fps=0/1.
+        if (!hasHide)
+        {
+            if (legacyShow != null) foreach (var id in new[] { "cpu", "ram", "net", "disk" }) if (!legacyShow.Contains(id)) hiddenFull.Add(id);
+            if (legacyShow != null && !legacyShow.Contains("gpu")) legacyHideGpus = true;
+            if (legacyFps == "0") hiddenFull.Add("fps");
+        }
+        if (!hasMiniHide) { hiddenMini.UnionWith(hiddenFull); legacyHideGpusMini = legacyHideGpus; }
+    }
+
+    static List<string> Split(string v)
+    {
+        var l = new List<string>();
+        foreach (var p in v.Split(',')) { string t = p.Trim(); if (t != "" && !l.Contains(t)) l.Add(t); }
+        return l;
     }
 
     void SaveSettings()
@@ -1581,9 +1822,10 @@ sealed class WidgetForm : Form
         {
             File.WriteAllLines(iniPath, new[] {
                 "x=" + (Left + M).ToString(CI), "y=" + (Top + M).ToString(CI),
-                "ontop=" + (onTop ? "1" : "0"), "locked=" + (locked ? "1" : "0"), "clickthrough=" + (clickThrough ? "1" : "0"), "mini=" + (mini ? "1" : "0"), "hidden=" + (hidden ? "1" : "0"), "bg=" + (accentBg ? "accent" : "dark"), "fps=" + (showFps ? "1" : "0"), "updates=" + (checkUpdates ? "1" : "0"), "anchor=" + anchor,
+                "ontop=" + (onTop ? "1" : "0"), "locked=" + (locked ? "1" : "0"), "clickthrough=" + (clickThrough ? "1" : "0"), "mini=" + (mini ? "1" : "0"), "hidden=" + (hidden ? "1" : "0"), "bg=" + (accentBg ? "accent" : "dark"), "updates=" + (checkUpdates ? "1" : "0"), "anchor=" + anchor,
                 "scale=" + scale.ToString(CI), "opacity=" + opacity.ToString(CI),
-                "show=" + (showCpu ? "cpu," : "") + (showGpu ? "gpu," : "") + (showRam ? "ram," : "") + (showNet ? "net," : "") + (showDisk ? "disk" : "") });
+                "order=" + string.Join(",", order), "hide=" + string.Join(",", hiddenFull), "minihide=" + string.Join(",", hiddenMini),
+                "off=" + string.Join(",", detailsOff), "compact=" + (compact ? "1" : "0"), "colors=" + ColorsText() });
         }
         catch { }
     }

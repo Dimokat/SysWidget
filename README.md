@@ -4,7 +4,7 @@ A tiny, native system-monitor widget for Windows. One small exe, no runtimes to 
 
 [Download](https://github.com/Dimokat/SysWidget/releases/latest) · [Support the project](https://send.monobank.ua/jar/125L2LfHgy)
 
-**CPU** load & temperature · **GPU** load, temperature, VRAM & power (NVIDIA) · **FPS** of the app in front · **RAM** · **Network** up/down · **Disks** activity & free space
+**CPU** load & temperature · **GPUs** (every one, integrated too) load, memory, temperature & power · **FPS** of the app in front · **RAM** · **Network** up/down · **Disks** activity & free space
 
 ## Install
 
@@ -16,7 +16,7 @@ If Microsoft Defender flags it (a `Wacatac!ml`-style detection), that's a machin
 
 Uninstall from *Settings → Apps*, or run the setup again and pick **Uninstall**.
 
-Requires Windows 10 or 11 (uses the .NET Framework that ships with Windows). GPU stats need an NVIDIA card; on other GPUs that section just doesn't appear.
+Requires Windows 10 or 11 (uses the .NET Framework that ships with Windows). Every GPU shows load and memory. Temperature comes from the NVIDIA and AMD drivers, power from NVIDIA and AMD graphics cards (Intel GPUs show load and memory only).
 
 ## Using it
 
@@ -24,7 +24,7 @@ Requires Windows 10 or 11 (uses the .NET Framework that ships with Windows). GPU
 |---|---|
 | Drag | Move it. It snaps to screen edges and docks to them. |
 | Double-click | Open Task Manager |
-| Right-click | Menu: Mini mode, Always on top, Lock position, Click-through, Start with Windows, Position, Show, Size, Opacity, Background, Check for updates |
+| Right-click | Menu: Mini mode, Always on top, Lock position, Click-through, Start with Windows, Position, Show, Size, Opacity, Background, Settings, Check for updates |
 | Ctrl + mouse | Interact with it while Click-through is on |
 | Tray icon | Left-click hides/shows the widget, right-click opens the same menu, hover shows a quick summary |
 
@@ -32,6 +32,7 @@ Requires Windows 10 or 11 (uses the .NET Framework that ships with Windows). GPU
 - **Hide widget** (or a left-click on the tray icon) tucks it away while it keeps running in the tray. Starting SysWidget again brings it back.
 - **Background** can be the default dark panel or your Windows accent color (darkened only as much as needed to keep text readable). It follows the accent when you change it.
 - **Show** turns individual sections on and off. Hidden sections aren't polled at all.
+- **Settings** opens a window where you choose the order of the sections, their colors, what each one shows (temperature, memory, power, graph...), what mini mode shows, and a compact layout. Changes apply as you make them.
 - It checks this repo's releases for updates (about once every 6 hours) and shows a small yellow dot plus an *Update available* menu item when there is one. You can turn this off in the menu.
 
 ### About the FPS counter
