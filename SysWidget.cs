@@ -62,6 +62,18 @@ static class Program
     [STAThread]
     static void Main(string[] args)
     {
+        if (args.Length >= 2 && args[0] == "--shots")
+        {
+            // README screenshots: records for a while (so the graphs fill up), saves PNGs into the folder, exits.
+            WidgetForm.ShotsDir = Path.GetFullPath(args[1]); int secs;
+            WidgetForm.ShotsSecs = args.Length > 2 && int.TryParse(args[2], out secs) ? secs : 60;
+            Directory.CreateDirectory(WidgetForm.ShotsDir);
+            SetProcessDPIAware();
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new WidgetForm());
+            return;
+        }
         if (args.Length == 2 && args[0] == "--snapshot")
         {
             // Renders one frame to a PNG and exits (used for testing without touching the screen).
@@ -412,7 +424,7 @@ sealed class WidgetForm : Form
         PlaceBody(ValidPosition(posX, posY));
         if (anchor != "") SnapTo(anchor);
         BuildMenu();
-        BuildTray();
+        if (ShotsDir == null) BuildTray();
         timer.Interval = 1000;
         timer.Tick += delegate { OnTick(); };
         // Click-through: poll Ctrl + cursor 20x/s, only while click-through is on.
@@ -547,6 +559,7 @@ sealed class WidgetForm : Form
         timer.Start();
         ctTimer.Enabled = clickThrough;
         StartUpdateChecks();
+        if (ShotsDir != null) StartShots();
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
@@ -749,7 +762,7 @@ sealed class WidgetForm : Form
 
     void Render(bool dock = true)
     {
-        if (!IsHandleCreated || H <= 0) return;
+        if (!IsHandleCreated || H <= 0 || ShotsDir != null) return; // screenshot mode never shows the widget itself
         if (dock) UpdateDock(Body);
         var ws = WinSize();
         if (canvas == null || canvas.Width != ws.Width || canvas.Height != ws.Height) { if (canvas != null) canvas.Dispose(); canvas = new Bitmap(ws.Width, ws.Height, PixelFormat.Format32bppArgb); }
@@ -1366,6 +1379,98 @@ sealed class WidgetForm : Form
         }
         if (settings.WindowState == FormWindowState.Minimized) settings.WindowState = FormWindowState.Normal;
         settings.Activate();
+    }
+
+    // ------------------------------------------------------------------ README screenshots (--shots)
+    internal static string ShotsDir; internal static int ShotsSecs = 60;
+    [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out RECT r, int size);
+
+    void StartShots()
+    {
+        int step = 0;
+        var t = new System.Windows.Forms.Timer { Interval = Math.Max(1, ShotsSecs) * 1000 };
+        var wa = Screen.PrimaryScreen.WorkingArea;
+        var spot = new Point(wa.Left + (int)(80 * dpi), wa.Top + (int)(80 * dpi));
+        t.Tick += delegate
+        {
+            try
+            {
+                if (step == 0)
+                {
+                    t.Interval = 900;
+                    SaveShot("widget.png");
+                    accentBg = true; UpdatePanelColor(); SaveShot("widget-accent.png");
+                    accentBg = false; UpdatePanelColor();
+                    mini = true; W = MiniWidth(); SaveShot("mini.png");
+                    mini = false; ApplyScale(); H = Measure();
+                    menu.Show(spot, ToolStripDropDownDirection.BelowRight);
+                }
+                else if (step == 1)
+                {
+                    CaptureWindow(menu.Handle, false, "menu.png"); menu.Close();
+                    OpenSettings(); settings.TopMost = true; settings.Location = spot;
+                }
+                else if (step == 2) { CaptureWindow(settings.Handle, true, "settings.png"); settings.Close(); }
+                else { t.Stop(); Close(); }
+            }
+            catch (Exception ex)
+            {
+                try { File.WriteAllText(Path.Combine(ShotsDir, "error.txt"), ex.ToString()); } catch { }
+                t.Stop(); Close();
+            }
+            step++;
+        };
+        t.Start();
+    }
+
+    // The widget drawn on its own, free-floating (no docked edges), with transparent corners.
+    void SaveShot(string name)
+    {
+        dL = dT = dR = dB = false;
+        H = Measure();
+        using (var bmp = new Bitmap(W, H, PixelFormat.Format32bppArgb))
+        {
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.Clear(Color.Transparent);
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+                Draw(g);
+            }
+            bmp.Save(Path.Combine(ShotsDir, name), ImageFormat.Png);
+        }
+    }
+
+    // A window as it is on screen, with Windows 11's rounded corners made transparent.
+    void CaptureWindow(IntPtr hwnd, bool frame, string name)
+    {
+        RECT r;
+        if (!frame || DwmGetWindowAttribute(hwnd, 9 /*EXTENDED_FRAME_BOUNDS*/, out r, Marshal.SizeOf(typeof(RECT))) != 0) GetWindowRect(hwnd, out r);
+        int w = r.R - r.L, h = r.B - r.T;
+        using (var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb))
+        {
+            using (var g = Graphics.FromImage(bmp)) g.CopyFromScreen(r.L, r.T, 0, 0, new Size(w, h));
+            RoundCorners(bmp, 8 * dpi);
+            bmp.Save(Path.Combine(ShotsDir, name), ImageFormat.Png);
+        }
+    }
+
+    static void RoundCorners(Bitmap b, float rad)
+    {
+        int w = b.Width, h = b.Height, n = (int)Math.Ceiling(rad) + 1;
+        for (int y = 0; y < n && y < h; y++)
+            for (int x = 0; x < n && x < w; x++)
+            {
+                double dx = rad - (x + 0.5), dy = rad - (y + 0.5);
+                if (dx <= 0 || dy <= 0) continue;
+                double cover = Math.Max(0, Math.Min(1, rad - Math.Sqrt(dx * dx + dy * dy) + 0.5));
+                if (cover >= 1) continue;
+                foreach (var p in new[] { new Point(x, y), new Point(w - 1 - x, y), new Point(x, h - 1 - y), new Point(w - 1 - x, h - 1 - y) })
+                {
+                    var c = b.GetPixel(p.X, p.Y);
+                    b.SetPixel(p.X, p.Y, Color.FromArgb((int)(c.A * cover), c));
+                }
+            }
     }
 
     // ------------------------------------------------------------------ menu / settings

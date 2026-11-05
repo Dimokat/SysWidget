@@ -148,7 +148,7 @@ sealed class SettingsWindow : Form
 
     float SectionsTab(Graphics g, bool draw, float x, float width, float y)
     {
-        y = Note(g, draw, x, width, y, "Turn sections on or off, reorder them, pick their colours and what each one shows.");
+        y = Note(g, draw, x, width, y, "Turn sections on or off, reorder them, pick their colors and what each one shows.");
         var ids = new List<string>(w.Sections());
         for (int i = 0; i < ids.Count; i++)
         {
@@ -212,7 +212,7 @@ sealed class SettingsWindow : Form
 
     float MiniTab(Graphics g, bool draw, float x, float width, float y)
     {
-        y = Note(g, draw, x, width, y, "Choose what the one-line mini mode shows. It uses the same order, colours and details (temperature, upload) as the Sections tab.");
+        y = Note(g, draw, x, width, y, "Choose what the one-line mini mode shows. It uses the same order, colors and details (temperature, upload) as the Sections tab.");
         foreach (var id in w.Sections())
         {
             string sid = id; bool on = w.IsShown(id, true);
@@ -242,7 +242,7 @@ sealed class SettingsWindow : Form
         y = Choice(g, draw, x, width, y, "Opacity", Array.ConvertAll(ops, v => v + "%"), Array.IndexOf(ops, w.OpacityPercent), i => w.OpacityPercent = ops[i]);
 
         y += S(4);
-        string label = "Reset sections, details and colours";
+        string label = "Reset sections, details and colors";
         var r = new RectangleF(x, y, g.MeasureString(label, fText).Width + S(28), S(30));
         if (draw)
         {

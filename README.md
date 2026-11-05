@@ -6,6 +6,13 @@ A tiny, native system-monitor widget for Windows. One small exe, no runtimes to 
 
 **CPU** load & temperature · **GPUs** (every one, integrated too) load, memory, temperature & power · **FPS** of the app in front · **RAM** · **Network** up/down · **Disks** activity & free space
 
+<p align="center">
+  <img src="docs/widget.png" width="300" alt="SysWidget with CPU, two GPUs, FPS, RAM, network and disks">&nbsp;&nbsp;
+  <img src="docs/widget-accent.png" width="230" alt="The same widget using the Windows accent color as its background">
+</p>
+
+<p align="center"><img src="docs/mini.png" width="760" alt="Mini mode: everything on one line"></p>
+
 ## Install
 
 1. Download **SysWidget-vX.Y.Z.zip** from the [latest release](https://github.com/Dimokat/SysWidget/releases/latest).
@@ -35,6 +42,11 @@ Requires Windows 10 or 11 (uses the .NET Framework that ships with Windows). Eve
 - **Settings** opens a window where you choose the order of the sections, their colors, what each one shows (temperature, memory, power, graph...), what mini mode shows, and a compact layout. Changes apply as you make them.
 - It checks this repo's releases for updates (about once every 6 hours) and shows a small yellow dot plus an *Update available* menu item when there is one. You can turn this off in the menu.
 
+<p align="center">
+  <img src="docs/menu.png" width="280" alt="Right-click menu">&nbsp;&nbsp;
+  <img src="docs/settings.png" width="450" alt="Settings window: section order, colors and details">
+</p>
+
 ### About the FPS counter
 
 FPS is read from Windows' own graphics event tracing (the same source PresentMon uses). Nothing is injected into games, so it's safe with anti-cheat. Windows only allows this for programs running as admin, which is why it relies on **Start with Windows** (a scheduled task with highest privileges, so there's no UAC prompt at login).
@@ -44,6 +56,8 @@ In true *exclusive* fullscreen no normal window can be drawn over a game. Use bo
 ## Building
 
 No IDE or SDK needed. Run **build.bat**. It takes the version from the latest git tag and uses the C# compiler that's built into Windows (`csc.exe` from .NET Framework 4.x) and produces `SysWidget.exe` and `Setup.exe`.
+
+The screenshots in `docs/` come from the widget itself: `SysWidget.exe --shots docs 60` records for 60 seconds (so the graphs fill up), saves the PNGs and exits. Run it as admin with the regular widget closed, so the FPS section works.
 
 ## Releasing
 
