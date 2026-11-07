@@ -1,0 +1,130 @@
+# SysWidget - tr. Translated from lang/en.txt (see that file for the format).
+# Fixes and improvements are welcome: edit this file and open a pull request.
+# ---- Widget: short section labels (like the column names in Task Manager)
+label.cpu = CPU
+label.gpu = GPU
+label.igpu = iGPU
+label.fps = FPS
+label.ram = RAM
+label.net = AĞ
+label.disk = DİSK
+
+# ---- Widget: values
+gpu.vram = VRAM {0} / {1} GB
+gpu.memory = Bellek {0} / {1} GB
+gpu.idle = boşta (pilde)
+gpu.idle.short = boşta
+fps.noapp = odakta uygulama yok
+fps.admin = yönetici gerekli
+fps.error = hata
+ram.value = {0} / {1} GB
+ram.short = {0} GB
+disk.free = {1} GB'ın {0} GB'ı boş
+disk.short = {0} GB
+disk.read = O {0}
+disk.write = Y {0}
+unit.bps = {0} B/sn
+unit.kbps = {0} KB/sn
+unit.mbps = {0} MB/sn
+unit.watts = {0} W
+
+# ---- Section names in menus and settings
+section.cpu = CPU
+section.fps = FPS
+section.ram = RAM
+section.net = Ağ
+section.disk = Diskler
+
+# ---- Right-click menu
+menu.update = Güncelleme var: {0}…
+menu.hide = Widget'ı gizle
+menu.unhide = Widget'ı göster
+menu.mini = Mini mod
+menu.ontop = Her zaman üstte
+menu.lock = Konumu kilitle
+menu.clickthrough = Tıklamaları geçir (etkileşim için Ctrl'yi basılı tutun)
+menu.startup = Windows ile başlat
+menu.position = Konum
+menu.show = Göster
+menu.size = Boyut
+menu.opacity = Opaklık
+menu.background = Arka plan
+menu.bg.dark = Koyu
+menu.bg.accent = Windows vurgu rengi
+menu.settings = Ayarlar…
+menu.more = Diğer seçenekler…
+menu.updates = Güncellemeleri denetle
+menu.taskmgr = Görev Yöneticisi
+menu.exit = Çıkış
+menu.about = SysWidget v{0}  ·  {1} tarafından
+menu.donate = Geliştiriciyi destekle ♥
+pos.tl = Sol üst
+pos.tc = Üst orta
+pos.tr = Sağ üst
+pos.ml = Sol orta
+pos.mc = Orta
+pos.mr = Sağ orta
+pos.bl = Sol alt
+pos.bc = Alt orta
+pos.br = Sağ alt
+
+# ---- Tray icon and notifications
+tray.update = {0} güncellemesi var
+notify.update.title = SysWidget {0} çıktı
+notify.update.text = İndirme sayfasını açmak için tıklayın.
+
+# ---- Settings window
+settings.title = SysWidget ayarları
+settings.tab.sections = Bölümler
+settings.tab.mini = Mini mod
+settings.tab.appearance = Görünüm
+settings.sections.note = Bölümleri açıp kapatın, sıralarını, renklerini ve her birinin ne gösterdiğini değiştirin.
+settings.mini.note = Tek satırlık mini modun ne göstereceğini seçin. Bölümler sekmesiyle aynı sırayı, renkleri ve ayrıntıları (sıcaklık, yükleme) kullanır.
+settings.layout = Düzen
+settings.layout.normal = Normal
+settings.layout.compact = Sıkı
+settings.language = Dil
+settings.language.auto = Otomatik ({0})
+settings.language.note = “Güncellemeleri denetle” açıkken çeviriler GitHub'dan güncellenir.
+settings.reset = Bölümleri, ayrıntıları ve renkleri sıfırla
+detail.temp = Sıcaklık
+detail.graph = Grafik
+detail.mem = Bellek
+detail.power = Güç
+detail.app = Uygulama adı
+detail.bar = Kullanım çubuğu
+detail.up = Yükleme
+detail.rw = Okuma / yazma
+detail.free = Boş alan
+color.down = İndirme
+color.up = Yükleme
+
+# ---- Installer
+setup.title = SysWidget Kurulumu
+setup.title.uninstall = SysWidget'ı kaldır
+setup.version = v{0}   ·   {1} tarafından
+setup.desc = CPU, GPU, FPS, RAM, ağ ve disk bilgilerini gösteren küçük bir masaüstü widget'ı.\nKurulum yeri: {0}
+setup.desc.uninstall = Bu işlem SysWidget'ı, kısayollarını ve başlangıç görevini bu bilgisayardan kaldırır.
+setup.opt.settings = Ayarlarımı da kaldır
+setup.opt.startup = Windows ile başlat (FPS sayacı için de gerekli)
+setup.opt.startmenu = Başlat menüsü kısayolu
+setup.opt.desktop = Masaüstü kısayolu
+setup.opt.launch = Bitince SysWidget'ı başlat
+setup.btn.install = Kur
+setup.btn.update = Güncelle
+setup.btn.uninstall = Kaldır
+setup.btn.cancel = İptal
+setup.btn.close = Kapat
+setup.extract = Önce zip dosyasının tamamını çıkarın, ardından Setup.exe'yi o klasörden çalıştırın.
+setup.err.nosource = SysWidget.exe, Setup.exe'nin yanında bulunamadı.\n\nÖnce zip dosyasının tamamını bir klasöre çıkarın, ardından Setup.exe'yi oradan çalıştırın.
+setup.err.task = Başlangıç görevi oluşturulamadı (schtasks çıkış kodu: {0}).
+setup.st.stopping = SysWidget durduruluyor…
+setup.st.copying = Dosyalar kopyalanıyor…
+setup.st.startup = Başlangıç ayarlanıyor…
+setup.st.shortcuts = Kısayollar oluşturuluyor…
+setup.st.registering = Yüklü uygulamalara kaydediliyor…
+setup.st.removing = Kaldırılıyor…
+setup.st.removed = SysWidget kaldırıldı.
+setup.st.done = Tamam! SysWidget kuruldu.
+setup.st.failed = Bir şeyler ters gitti.
+setup.shortcut = SysWidget - sistem izleme widget'ı

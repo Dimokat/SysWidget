@@ -1,0 +1,130 @@
+# SysWidget - vi. Translated from lang/en.txt (see that file for the format).
+# Fixes and improvements are welcome: edit this file and open a pull request.
+# ---- Widget: short section labels (like the column names in Task Manager)
+label.cpu = CPU
+label.gpu = GPU
+label.igpu = iGPU
+label.fps = FPS
+label.ram = RAM
+label.net = MẠNG
+label.disk = Ổ ĐĨA
+
+# ---- Widget: values
+gpu.vram = VRAM {0} / {1} GB
+gpu.memory = Bộ nhớ {0} / {1} GB
+gpu.idle = nghỉ (dùng pin)
+gpu.idle.short = nghỉ
+fps.noapp = không có ứng dụng nào
+fps.admin = cần quyền quản trị
+fps.error = lỗi
+ram.value = {0} / {1} GB
+ram.short = {0} GB
+disk.free = trống {0} GB / {1}
+disk.short = {0} GB
+disk.read = Đ {0}
+disk.write = G {0}
+unit.bps = {0} B/s
+unit.kbps = {0} KB/s
+unit.mbps = {0} MB/s
+unit.watts = {0} W
+
+# ---- Section names in menus and settings
+section.cpu = CPU
+section.fps = FPS
+section.ram = RAM
+section.net = Mạng
+section.disk = Ổ đĩa
+
+# ---- Right-click menu
+menu.update = Có bản cập nhật: {0}…
+menu.hide = Ẩn tiện ích
+menu.unhide = Hiện tiện ích
+menu.mini = Chế độ mini
+menu.ontop = Luôn ở trên cùng
+menu.lock = Khóa vị trí
+menu.clickthrough = Cho phép nhấp xuyên qua (giữ Ctrl để tương tác)
+menu.startup = Khởi động cùng Windows
+menu.position = Vị trí
+menu.show = Hiển thị
+menu.size = Kích thước
+menu.opacity = Độ mờ đục
+menu.background = Nền
+menu.bg.dark = Tối
+menu.bg.accent = Màu nhấn của Windows
+menu.settings = Cài đặt…
+menu.more = Tùy chọn khác…
+menu.updates = Kiểm tra cập nhật
+menu.taskmgr = Trình quản lý tác vụ
+menu.exit = Thoát
+menu.about = SysWidget v{0}  ·  tác giả {1}
+menu.donate = Ủng hộ nhà phát triển ♥
+pos.tl = Trên cùng bên trái
+pos.tc = Giữa phía trên
+pos.tr = Trên cùng bên phải
+pos.ml = Giữa bên trái
+pos.mc = Chính giữa
+pos.mr = Giữa bên phải
+pos.bl = Dưới cùng bên trái
+pos.bc = Giữa phía dưới
+pos.br = Dưới cùng bên phải
+
+# ---- Tray icon and notifications
+tray.update = Có bản cập nhật {0}
+notify.update.title = Đã có SysWidget {0}
+notify.update.text = Nhấp để mở trang tải xuống.
+
+# ---- Settings window
+settings.title = Cài đặt SysWidget
+settings.tab.sections = Mục
+settings.tab.mini = Chế độ mini
+settings.tab.appearance = Giao diện
+settings.sections.note = Bật hoặc tắt các mục, sắp xếp lại, chọn màu và nội dung mỗi mục hiển thị.
+settings.mini.note = Chọn những gì chế độ mini một dòng hiển thị. Nó dùng cùng thứ tự, màu và chi tiết (nhiệt độ, tải lên) như thẻ Mục.
+settings.layout = Bố cục
+settings.layout.normal = Bình thường
+settings.layout.compact = Gọn
+settings.language = Ngôn ngữ
+settings.language.auto = Tự động ({0})
+settings.language.note = Bản dịch được cập nhật từ GitHub khi bật “Kiểm tra cập nhật”.
+settings.reset = Đặt lại mục, chi tiết và màu
+detail.temp = Nhiệt độ
+detail.graph = Biểu đồ
+detail.mem = Bộ nhớ
+detail.power = Công suất
+detail.app = Tên ứng dụng
+detail.bar = Thanh sử dụng
+detail.up = Tải lên
+detail.rw = Đọc / ghi
+detail.free = Dung lượng trống
+color.down = Tải xuống
+color.up = Tải lên
+
+# ---- Installer
+setup.title = Cài đặt SysWidget
+setup.title.uninstall = Gỡ cài đặt SysWidget
+setup.version = v{0}   ·   tác giả {1}
+setup.desc = Tiện ích màn hình nền nhỏ hiển thị CPU, GPU, FPS, RAM, mạng và ổ đĩa.\nSẽ được cài vào {0}
+setup.desc.uninstall = Thao tác này gỡ SysWidget, các lối tắt và tác vụ khởi động của nó khỏi máy tính này.
+setup.opt.settings = Xóa cả cài đặt của tôi
+setup.opt.startup = Khởi động cùng Windows (cũng cần cho bộ đếm FPS)
+setup.opt.startmenu = Lối tắt trong menu Start
+setup.opt.desktop = Lối tắt trên màn hình nền
+setup.opt.launch = Mở SysWidget khi xong
+setup.btn.install = Cài đặt
+setup.btn.update = Cập nhật
+setup.btn.uninstall = Gỡ cài đặt
+setup.btn.cancel = Hủy
+setup.btn.close = Đóng
+setup.extract = Hãy giải nén toàn bộ tệp zip trước, rồi chạy Setup.exe từ thư mục đó.
+setup.err.nosource = Không tìm thấy SysWidget.exe bên cạnh Setup.exe.\n\nHãy giải nén toàn bộ tệp zip vào một thư mục trước, rồi chạy Setup.exe từ đó.
+setup.err.task = Không thể tạo tác vụ khởi động (mã thoát schtasks: {0}).
+setup.st.stopping = Đang dừng SysWidget…
+setup.st.copying = Đang sao chép tệp…
+setup.st.startup = Đang thiết lập khởi động…
+setup.st.shortcuts = Đang tạo lối tắt…
+setup.st.registering = Đang đăng ký vào danh sách ứng dụng đã cài…
+setup.st.removing = Đang gỡ…
+setup.st.removed = Đã gỡ SysWidget.
+setup.st.done = Xong! SysWidget đã được cài đặt.
+setup.st.failed = Đã xảy ra lỗi.
+setup.shortcut = SysWidget - tiện ích theo dõi hệ thống

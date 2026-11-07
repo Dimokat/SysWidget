@@ -1,0 +1,130 @@
+# SysWidget - zh-Hant. Translated from lang/en.txt (see that file for the format).
+# Fixes and improvements are welcome: edit this file and open a pull request.
+# ---- Widget: short section labels (like the column names in Task Manager)
+label.cpu = CPU
+label.gpu = GPU
+label.igpu = 內顯
+label.fps = FPS
+label.ram = 記憶體
+label.net = 網路
+label.disk = 磁碟
+
+# ---- Widget: values
+gpu.vram = 顯示記憶體 {0} / {1} GB
+gpu.memory = 記憶體 {0} / {1} GB
+gpu.idle = 閒置 (使用電池)
+gpu.idle.short = 閒置
+fps.noapp = 沒有前景應用程式
+fps.admin = 需要系統管理員權限
+fps.error = 錯誤
+ram.value = {0} / {1} GB
+ram.short = {0} GB
+disk.free = 可用 {0} GB，共 {1}
+disk.short = {0} GB
+disk.read = 讀 {0}
+disk.write = 寫 {0}
+unit.bps = {0} B/s
+unit.kbps = {0} KB/s
+unit.mbps = {0} MB/s
+unit.watts = {0} W
+
+# ---- Section names in menus and settings
+section.cpu = CPU
+section.fps = FPS
+section.ram = 記憶體
+section.net = 網路
+section.disk = 磁碟
+
+# ---- Right-click menu
+menu.update = 有可用的更新: {0}…
+menu.hide = 隱藏小工具
+menu.unhide = 顯示小工具
+menu.mini = 迷你模式
+menu.ontop = 永遠在最上層
+menu.lock = 鎖定位置
+menu.clickthrough = 點擊穿透 (按住 Ctrl 進行操作)
+menu.startup = 隨 Windows 啟動
+menu.position = 位置
+menu.show = 顯示
+menu.size = 大小
+menu.opacity = 不透明度
+menu.background = 背景
+menu.bg.dark = 深色
+menu.bg.accent = Windows 輔色
+menu.settings = 設定…
+menu.more = 更多選項…
+menu.updates = 檢查更新
+menu.taskmgr = 工作管理員
+menu.exit = 結束
+menu.about = SysWidget v{0}  ·  作者 {1}
+menu.donate = 支持開發者 ♥
+pos.tl = 左上
+pos.tc = 上方置中
+pos.tr = 右上
+pos.ml = 左側置中
+pos.mc = 置中
+pos.mr = 右側置中
+pos.bl = 左下
+pos.bc = 下方置中
+pos.br = 右下
+
+# ---- Tray icon and notifications
+tray.update = 有可用的更新 {0}
+notify.update.title = SysWidget {0} 已推出
+notify.update.text = 按一下以開啟下載頁面。
+
+# ---- Settings window
+settings.title = SysWidget 設定
+settings.tab.sections = 區塊
+settings.tab.mini = 迷你模式
+settings.tab.appearance = 外觀
+settings.sections.note = 開啟或關閉區塊、調整順序，並選擇顏色及每個區塊顯示的內容。
+settings.mini.note = 選擇單行迷你模式要顯示的內容。它使用與「區塊」索引標籤相同的順序、顏色和詳細資料 (溫度、上傳)。
+settings.layout = 版面配置
+settings.layout.normal = 標準
+settings.layout.compact = 精簡
+settings.language = 語言
+settings.language.auto = 自動 ({0})
+settings.language.note = 開啟「檢查更新」時，翻譯會從 GitHub 更新。
+settings.reset = 重設區塊、詳細資料和顏色
+detail.temp = 溫度
+detail.graph = 圖表
+detail.mem = 記憶體
+detail.power = 功耗
+detail.app = 應用程式名稱
+detail.bar = 使用率列
+detail.up = 上傳
+detail.rw = 讀取 / 寫入
+detail.free = 可用空間
+color.down = 下載
+color.up = 上傳
+
+# ---- Installer
+setup.title = SysWidget 安裝程式
+setup.title.uninstall = 解除安裝 SysWidget
+setup.version = v{0}   ·   作者 {1}
+setup.desc = 顯示 CPU、GPU、FPS、記憶體、網路和磁碟資訊的小型桌面小工具。\n安裝到 {0}
+setup.desc.uninstall = 這會從此電腦移除 SysWidget、其捷徑和啟動工作。
+setup.opt.settings = 同時移除我的設定
+setup.opt.startup = 隨 Windows 啟動 (FPS 計數器也需要)
+setup.opt.startmenu = 開始功能表捷徑
+setup.opt.desktop = 桌面捷徑
+setup.opt.launch = 完成後啟動 SysWidget
+setup.btn.install = 安裝
+setup.btn.update = 更新
+setup.btn.uninstall = 解除安裝
+setup.btn.cancel = 取消
+setup.btn.close = 關閉
+setup.extract = 請先解壓縮整個 zip 檔，再從該資料夾執行 Setup.exe。
+setup.err.nosource = 在 Setup.exe 旁找不到 SysWidget.exe。\n\n請先將整個 zip 檔解壓縮到資料夾，再從那裡執行 Setup.exe。
+setup.err.task = 無法建立啟動工作 (schtasks 結束代碼: {0})。
+setup.st.stopping = 正在停止 SysWidget…
+setup.st.copying = 正在複製檔案…
+setup.st.startup = 正在設定開機啟動…
+setup.st.shortcuts = 正在建立捷徑…
+setup.st.registering = 正在註冊到已安裝的應用程式…
+setup.st.removing = 正在移除…
+setup.st.removed = SysWidget 已移除。
+setup.st.done = 完成！SysWidget 已安裝。
+setup.st.failed = 發生問題。
+setup.shortcut = SysWidget - 系統監視小工具

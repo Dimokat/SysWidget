@@ -1,0 +1,130 @@
+# SysWidget - ja. Translated from lang/en.txt (see that file for the format).
+# Fixes and improvements are welcome: edit this file and open a pull request.
+# ---- Widget: short section labels (like the column names in Task Manager)
+label.cpu = CPU
+label.gpu = GPU
+label.igpu = iGPU
+label.fps = FPS
+label.ram = メモリ
+label.net = ネットワーク
+label.disk = ディスク
+
+# ---- Widget: values
+gpu.vram = VRAM {0} / {1} GB
+gpu.memory = メモリ {0} / {1} GB
+gpu.idle = アイドル (バッテリー駆動)
+gpu.idle.short = アイドル
+fps.noapp = アクティブなアプリなし
+fps.admin = 管理者権限が必要
+fps.error = エラー
+ram.value = {0} / {1} GB
+ram.short = {0} GB
+disk.free = 空き {0} GB / {1}
+disk.short = {0} GB
+disk.read = 読 {0}
+disk.write = 書 {0}
+unit.bps = {0} B/s
+unit.kbps = {0} KB/s
+unit.mbps = {0} MB/s
+unit.watts = {0} W
+
+# ---- Section names in menus and settings
+section.cpu = CPU
+section.fps = FPS
+section.ram = メモリ
+section.net = ネットワーク
+section.disk = ディスク
+
+# ---- Right-click menu
+menu.update = 更新があります: {0}…
+menu.hide = ウィジェットを隠す
+menu.unhide = ウィジェットを表示
+menu.mini = ミニモード
+menu.ontop = 常に手前に表示
+menu.lock = 位置を固定
+menu.clickthrough = クリックを透過 (Ctrl を押しながら操作)
+menu.startup = Windows と同時に起動
+menu.position = 位置
+menu.show = 表示
+menu.size = サイズ
+menu.opacity = 不透明度
+menu.background = 背景
+menu.bg.dark = ダーク
+menu.bg.accent = Windows のアクセント カラー
+menu.settings = 設定…
+menu.more = その他のオプション…
+menu.updates = 更新を確認
+menu.taskmgr = タスク マネージャー
+menu.exit = 終了
+menu.about = SysWidget v{0}  ·  作者: {1}
+menu.donate = 開発者を支援 ♥
+pos.tl = 左上
+pos.tc = 上中央
+pos.tr = 右上
+pos.ml = 左中央
+pos.mc = 中央
+pos.mr = 右中央
+pos.bl = 左下
+pos.bc = 下中央
+pos.br = 右下
+
+# ---- Tray icon and notifications
+tray.update = 更新 {0} があります
+notify.update.title = SysWidget {0} が利用可能です
+notify.update.text = クリックするとダウンロード ページを開きます。
+
+# ---- Settings window
+settings.title = SysWidget の設定
+settings.tab.sections = セクション
+settings.tab.mini = ミニモード
+settings.tab.appearance = 外観
+settings.sections.note = セクションのオン/オフ、並べ替え、色、各セクションに表示する内容を選べます。
+settings.mini.note = 1 行のミニモードに表示する内容を選びます。順序、色、詳細 (温度、アップロード) は [セクション] タブと同じです。
+settings.layout = レイアウト
+settings.layout.normal = 標準
+settings.layout.compact = コンパクト
+settings.language = 言語
+settings.language.auto = 自動 ({0})
+settings.language.note = [更新を確認] がオンの間、翻訳は GitHub から更新されます。
+settings.reset = セクション、詳細、色をリセット
+detail.temp = 温度
+detail.graph = グラフ
+detail.mem = メモリ
+detail.power = 電力
+detail.app = アプリ名
+detail.bar = 使用率バー
+detail.up = アップロード
+detail.rw = 読み取り / 書き込み
+detail.free = 空き容量
+color.down = ダウンロード
+color.up = アップロード
+
+# ---- Installer
+setup.title = SysWidget セットアップ
+setup.title.uninstall = SysWidget のアンインストール
+setup.version = v{0}   ·   作者: {1}
+setup.desc = CPU、GPU、FPS、メモリ、ネットワーク、ディスクを表示する小さなデスクトップ ウィジェット。\nインストール先: {0}
+setup.desc.uninstall = この PC から SysWidget とそのショートカット、スタートアップ タスクを削除します。
+setup.opt.settings = 設定も削除する
+setup.opt.startup = Windows と同時に起動 (FPS カウンターにも必要)
+setup.opt.startmenu = スタート メニューのショートカット
+setup.opt.desktop = デスクトップのショートカット
+setup.opt.launch = 完了後に SysWidget を起動
+setup.btn.install = インストール
+setup.btn.update = 更新
+setup.btn.uninstall = アンインストール
+setup.btn.cancel = キャンセル
+setup.btn.close = 閉じる
+setup.extract = 先に zip 全体を展開し、そのフォルダーから Setup.exe を実行してください。
+setup.err.nosource = Setup.exe と同じ場所に SysWidget.exe が見つかりません。\n\n先に zip 全体をフォルダーに展開し、そこから Setup.exe を実行してください。
+setup.err.task = スタートアップ タスクを作成できませんでした (schtasks の終了コード: {0})。
+setup.st.stopping = SysWidget を停止しています…
+setup.st.copying = ファイルをコピーしています…
+setup.st.startup = スタートアップを設定しています…
+setup.st.shortcuts = ショートカットを作成しています…
+setup.st.registering = インストール済みアプリに登録しています…
+setup.st.removing = 削除しています…
+setup.st.removed = SysWidget を削除しました。
+setup.st.done = 完了しました。SysWidget がインストールされました。
+setup.st.failed = 問題が発生しました。
+setup.shortcut = SysWidget - システム モニター ウィジェット

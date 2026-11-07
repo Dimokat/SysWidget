@@ -62,18 +62,6 @@ static class Program
     [STAThread]
     static void Main(string[] args)
     {
-        if (args.Length >= 2 && args[0] == "--shots")
-        {
-            // README screenshots: records for a while (so the graphs fill up), saves PNGs into the folder, exits.
-            WidgetForm.ShotsDir = Path.GetFullPath(args[1]); int secs;
-            WidgetForm.ShotsSecs = args.Length > 2 && int.TryParse(args[2], out secs) ? secs : 60;
-            Directory.CreateDirectory(WidgetForm.ShotsDir);
-            SetProcessDPIAware();
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new WidgetForm());
-            return;
-        }
         if (args.Length == 2 && args[0] == "--snapshot")
         {
             // Renders one frame to a PNG and exits (used for testing without touching the screen).
@@ -414,6 +402,8 @@ sealed class WidgetForm : Form
         FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual; Text = "SysWidget";
         try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
         LoadSettings();
+        Lang.CacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SysWidget", "lang");
+        Lang.Load(langChoice);
         UpdatePanelColor();
         ApplyScale();
         InitSensors();
@@ -424,7 +414,7 @@ sealed class WidgetForm : Form
         PlaceBody(ValidPosition(posX, posY));
         if (anchor != "") SnapTo(anchor);
         BuildMenu();
-        if (ShotsDir == null) BuildTray();
+        BuildTray();
         timer.Interval = 1000;
         timer.Tick += delegate { OnTick(); };
         // Click-through: poll Ctrl + cursor 20x/s, only while click-through is on.
@@ -438,9 +428,9 @@ sealed class WidgetForm : Form
         M = (int)Math.Ceiling(10 * s) + 2;
         if (fLabel != null) { fLabel.Dispose(); fValue.Dispose(); fSmall.Dispose(); }
         // Whole-pixel font sizes hint much more crisply at small scales.
-        fLabel = new Font("Segoe UI Semibold", (float)Math.Max(7, Math.Round(10.5f * s)), GraphicsUnit.Pixel);
-        fValue = new Font("Segoe UI", (float)Math.Max(8, Math.Round(12.5f * s)), GraphicsUnit.Pixel);
-        fSmall = new Font("Segoe UI", (float)Math.Max(7, Math.Round(10.5f * s)), GraphicsUnit.Pixel);
+        fLabel = Lang.MakeFont((float)Math.Max(7, Math.Round(10.5f * s)), true, GraphicsUnit.Pixel);
+        fValue = Lang.MakeFont((float)Math.Max(8, Math.Round(12.5f * s)), false, GraphicsUnit.Pixel);
+        fSmall = Lang.MakeFont((float)Math.Max(7, Math.Round(10.5f * s)), false, GraphicsUnit.Pixel);
     }
 
     void Relayout()
@@ -559,7 +549,6 @@ sealed class WidgetForm : Form
         timer.Start();
         ctTimer.Enabled = clickThrough;
         StartUpdateChecks();
-        if (ShotsDir != null) StartShots();
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
@@ -680,7 +669,12 @@ sealed class WidgetForm : Form
         fpsVal = fps.Read(); hFps.Add(fpsVal);
     }
 
-    string FpsText() { return fps == null || fps.Error != null ? (fps == null ? "n/a" : fps.Error) : fpsVal > 0 ? fpsVal.ToString("0", CI) : "\u2014"; }
+    string FpsText()
+    {
+        if (fps == null) return "\u2014";
+        if (fps.Error != null) return Lang.T(fps.Error == "needs admin" ? "fps.admin" : "fps.error");
+        return fpsVal > 0 ? N(fpsVal, "0") : "\u2014";
+    }
 
     void SampleNet()
     {
@@ -762,7 +756,7 @@ sealed class WidgetForm : Form
 
     void Render(bool dock = true)
     {
-        if (!IsHandleCreated || H <= 0 || ShotsDir != null) return; // screenshot mode never shows the widget itself
+        if (!IsHandleCreated || H <= 0) return;
         if (dock) UpdateDock(Body);
         var ws = WinSize();
         if (canvas == null || canvas.Width != ws.Width || canvas.Height != ws.Height) { if (canvas != null) canvas.Dispose(); canvas = new Bitmap(ws.Width, ws.Height, PixelFormat.Format32bppArgb); }
@@ -856,22 +850,22 @@ sealed class WidgetForm : Form
         switch (id)
         {
             case "cpu":
-                Header(g, ref y, "CPU", c, Pct(cpu), brValue, Opt(id, "temp") ? TempText(cpuTemp) : null, TempBrush(cpuTemp));
+                Header(g, ref y, Lang.T("label.cpu"), c, Pct(cpu), brValue, Opt(id, "temp") ? TempText(cpuTemp) : null, TempBrush(cpuTemp));
                 if (Opt(id, "graph")) { y += 3 * s; Graph(g, x, y, w, gh, hCpu, 100, c, null, Color.Empty); y += gh; }
                 return sgap;
             case "fps":
-                Header(g, ref y, "FPS", c, FpsText(), fps != null && fps.Error == null ? brValue : brDim, null, null);
-                if (Opt(id, "app")) Small(g, ref y, fpsApp == "" ? "no app in focus" : fpsApp, "");
+                Header(g, ref y, Lang.T("label.fps"), c, FpsText(), fps != null && fps.Error == null ? brValue : brDim, null, null);
+                if (Opt(id, "app")) Small(g, ref y, fpsApp == "" ? Lang.T("fps.noapp") : fpsApp, "");
                 if (Opt(id, "graph")) { y += 3 * s; Graph(g, x, y, w, gh, hFps, Math.Max(60f, hFps.Max()), c, null, Color.Empty); y += gh; }
                 return sgap;
             case "ram":
-                Header(g, ref y, "RAM", c, string.Format(CI, "{0:0.0} / {1:0.0} GB", ramUsed, ramTotal), brValue, null, null);
+                Header(g, ref y, Lang.T("label.ram"), c, Lang.F("ram.value", N(ramUsed, "0.0"), N(ramTotal, "0.0")), brValue, null, null);
                 if (Opt(id, "bar")) { y += 5 * s; Bar(g, x, y, w, 5 * s, ramTotal > 0 ? ramUsed / ramTotal : 0, c); y += 5 * s; return sgap + s; }
                 return sgap;
             case "net":
             {
                 bool upOn = Opt(id, "up");
-                Header(g, ref y, "NET", c, "\u2193 " + Rate(down), brValue, upOn ? "\u2191 " + Rate(up) : null, brLabel);
+                Header(g, ref y, Lang.T("label.net"), c, "\u2193 " + Rate(down), brValue, upOn ? "\u2191 " + Rate(up) : null, brLabel);
                 if (Opt(id, "graph"))
                 {
                     y += 3 * s;
@@ -883,12 +877,12 @@ sealed class WidgetForm : Form
             case "disk":
             {
                 bool rw = Opt(id, "rw");
-                Header(g, ref y, "DISK", c, rw ? "R " + Rate(diskR) : null, brValue, rw ? "W " + Rate(diskW) : null, brValue);
+                Header(g, ref y, Lang.T("label.disk"), c, rw ? Lang.F("disk.read", Rate(diskR)) : null, brValue, rw ? Lang.F("disk.write", Rate(diskW)) : null, brValue);
                 if (!Opt(id, "free") || drives.Count == 0) return sgap;
                 y += 4 * s; float dg = 0;
                 foreach (var dr in drives)
                 {
-                    Small(g, ref y, dr.Name, string.Format(CI, "{0:0} GB free of {1:0}", dr.Free / GB, dr.Total / GB));
+                    Small(g, ref y, dr.Name, Lang.F("disk.free", N((float)(dr.Free / GB), "0"), N((float)(dr.Total / GB), "0")));
                     y += 1 * s;
                     double frac = dr.Total > 0 ? 1 - dr.Free / dr.Total : 0;
                     Bar(g, x, y, w, 4 * s, (float)frac, dr.Total > 0 && dr.Free / dr.Total < 0.1 ? cHot : c);
@@ -898,15 +892,15 @@ sealed class WidgetForm : Form
             }
         }
         var gpu = GpuById(id); if (gpu == null) return 0;
-        string label = gpu.Label + " \u00B7 " + gpu.Name;
+        string label = GpuLabel(gpu) + " \u00B7 " + gpu.Name;
         bool temp = Opt(id, "temp") && HasTemp(gpu);
-        if (gpu.Idle) Header(g, ref y, label, c, "idle (on battery)", brDim, null, null);
+        if (gpu.Idle) Header(g, ref y, label, c, Lang.T("gpu.idle"), brDim, null, null);
         else Header(g, ref y, label, c, Pct(gpu.Load), brValue, temp ? TempText(gpu.Temp) : null, TempBrush(gpu.Temp));
         // The detail row's presence depends only on settings and what the GPU can report, so the height stays put.
         bool mem = Opt(id, "mem") && gpu.MemTotal > 0, pw = Opt(id, "power") && HasPower(gpu);
         if (mem || pw)
-            Small(g, ref y, mem && !gpu.Idle ? string.Format(CI, "{0} {1:0.0} / {2:0.0} GB", gpu.MemLabel, gpu.MemUsed / GB, gpu.MemTotal / GB) : "",
-                  pw && !gpu.Idle && !float.IsNaN(gpu.Power) ? string.Format(CI, "{0:0.0} W", gpu.Power) : "");
+            Small(g, ref y, mem && !gpu.Idle ? Lang.F(gpu.Integrated ? "gpu.memory" : "gpu.vram", N((float)(gpu.MemUsed / GB), "0.0"), N((float)(gpu.MemTotal / GB), "0.0")) : "",
+                  pw && !gpu.Idle && !float.IsNaN(gpu.Power) ? Lang.F("unit.watts", N(gpu.Power, "0.0")) : "");
         if (Opt(id, "graph")) { y += 3 * s; Graph(g, x, y, w, gh, gpu.History, 100, c, null, Color.Empty); y += gh; }
         return sgap;
     }
@@ -933,29 +927,31 @@ sealed class WidgetForm : Form
                 case "cpu":
                 {
                     bool t = Opt(id, "temp") && pcTemp != IntPtr.Zero;
-                    Seg(g, draw, ref x, y, ref any, "CPU", c, Pct(cpu), brValue, "100%", t ? TempText(cpuTemp) : null, TempBrush(cpuTemp), t ? tTemp : null);
+                    Seg(g, draw, ref x, y, ref any, Lang.T("label.cpu"), c, Pct(cpu), brValue, "100%", t ? TempText(cpuTemp) : null, TempBrush(cpuTemp), t ? tTemp : null);
                     break;
                 }
-                case "fps": Seg(g, draw, ref x, y, ref any, "FPS", c, FpsText(), brValue, "999", null, null, null); break;
-                case "ram": Seg(g, draw, ref x, y, ref any, "RAM", c, string.Format(CI, "{0:0.0} GB", ramUsed), brValue, "99.9 GB", null, null, null); break;
+                case "fps": Seg(g, draw, ref x, y, ref any, Lang.T("label.fps"), c, FpsText(), brValue, "999", null, null, null); break;
+                case "ram": Seg(g, draw, ref x, y, ref any, Lang.T("label.ram"), c, Lang.F("ram.short", N(ramUsed, "0.0")), brValue, Lang.F("ram.short", N(99.9f, "0.0")), null, null, null); break;
                 case "net":
                 {
                     bool upOn = Opt(id, "up");
-                    Seg(g, draw, ref x, y, ref any, "NET", c, "\u2193 " + Rate(down), brValue, "\u2193 999 MB/s", upOn ? "\u2191 " + Rate(up) : null, brLabel, upOn ? "\u2191 999 MB/s" : null);
+                    string wide = Lang.F("unit.mbps", "999");
+                    Seg(g, draw, ref x, y, ref any, Lang.T("label.net"), c, "\u2193 " + Rate(down), brValue, "\u2193 " + wide, upOn ? "\u2191 " + Rate(up) : null, brLabel, upOn ? "\u2191 " + wide : null);
                     break;
                 }
                 case "disk":
                     if (Opt(id, "free"))
                         foreach (var dr in drives)
-                            Seg(g, draw, ref x, y, ref any, dr.Name, c, string.Format(CI, "{0:0} GB", dr.Free / GB), brValue, "9999 GB", null, null, null);
-                    else Seg(g, draw, ref x, y, ref any, "DISK", c, "R " + Rate(diskR), brValue, "R 999 MB/s", "W " + Rate(diskW), brValue, "W 999 MB/s");
+                            Seg(g, draw, ref x, y, ref any, dr.Name, c, Lang.F("disk.short", N((float)(dr.Free / GB), "0")), brValue, Lang.F("disk.short", "9999"), null, null, null);
+                    else Seg(g, draw, ref x, y, ref any, Lang.T("label.disk"), c, Lang.F("disk.read", Rate(diskR)), brValue, Lang.F("disk.read", Lang.F("unit.mbps", "999")),
+                             Lang.F("disk.write", Rate(diskW)), brValue, Lang.F("disk.write", Lang.F("unit.mbps", "999")));
                     break;
                 default:
                 {
                     var gp = GpuById(id); if (gp == null) break;
                     bool t = Opt(id, "temp") && HasTemp(gp);
-                    if (gp.Idle) Seg(g, draw, ref x, y, ref any, gp.Label, c, "idle", brDim, "100%", null, null, t ? tTemp : null);
-                    else Seg(g, draw, ref x, y, ref any, gp.Label, c, Pct(gp.Load), brValue, "100%", t ? TempText(gp.Temp) : null, TempBrush(gp.Temp), t ? tTemp : null);
+                    if (gp.Idle) Seg(g, draw, ref x, y, ref any, GpuLabel(gp), c, Lang.T("gpu.idle.short"), brDim, "100%", null, null, t ? tTemp : null);
+                    else Seg(g, draw, ref x, y, ref any, GpuLabel(gp), c, Pct(gp.Load), brValue, "100%", t ? TempText(gp.Temp) : null, TempBrush(gp.Temp), t ? tTemp : null);
                     break;
                 }
             }
@@ -1055,14 +1051,17 @@ sealed class WidgetForm : Form
         p.CloseFigure(); return p;
     }
 
-    static string Pct(float v) { return v.ToString("0", CI) + "%"; }
-    static string TempText(float t) { return float.IsNaN(t) ? null : t.ToString("0", CI) + "°C"; }
+    // Shown numbers follow the Windows regional format; the settings file keeps using CI.
+    static string N(float v, string fmt) { return v.ToString(fmt, Lang.Num); }
+    static string Pct(float v) { return N(v, "0") + "%"; }
+    static string TempText(float t) { return float.IsNaN(t) ? null : N(t, "0") + "°C"; }
+    static string GpuLabel(Gpu g) { return Lang.T(g.Integrated ? "label.igpu" : "label.gpu") + (g.Number > 0 ? g.Number.ToString(CI) : ""); }
     Brush TempBrush(float t) { return t >= 90 ? brHot : t >= 80 ? brWarn : brValue; }
     static string Rate(double b)
     {
-        if (b < 1024) return b.ToString("0", CI) + " B/s";
-        if (b < 1048576) return (b / 1024).ToString(b < 10240 ? "0.0" : "0", CI) + " KB/s";
-        return (b / 1048576).ToString(b < 10485760 ? "0.0" : "0", CI) + " MB/s";
+        if (b < 1024) return Lang.F("unit.bps", b.ToString("0", Lang.Num));
+        if (b < 1048576) return Lang.F("unit.kbps", (b / 1024).ToString(b < 10240 ? "0.0" : "0", Lang.Num));
+        return Lang.F("unit.mbps", (b / 1048576).ToString(b < 10485760 ? "0.0" : "0", Lang.Num));
     }
 
     // ------------------------------------------------------------------ window behaviour
@@ -1286,31 +1285,36 @@ sealed class WidgetForm : Form
 
     internal string Title(string id)
     {
-        switch (id) { case "cpu": return "CPU"; case "fps": return "FPS"; case "ram": return "RAM"; case "net": return "Network"; case "disk": return "Disks"; }
-        var g = GpuById(id); return g == null ? id : g.Label + " \u00B7 " + g.Name;
+        if (Array.IndexOf(BaseSections, id) >= 0) return Lang.T("section." + id);
+        var g = GpuById(id); return g == null ? id : GpuLabel(g) + " \u00B7 " + g.Name;
     }
 
     internal string[][] DetailsOf(string id)
     {
+        string[] keys;
         switch (id)
         {
-            case "cpu": return new[] { new[] { "temp", "Temperature" }, new[] { "graph", "Graph" } };
-            case "fps": return new[] { new[] { "app", "App name" }, new[] { "graph", "Graph" } };
-            case "ram": return new[] { new[] { "bar", "Usage bar" } };
-            case "net": return new[] { new[] { "up", "Upload" }, new[] { "graph", "Graph" } };
-            case "disk": return new[] { new[] { "rw", "Read / write" }, new[] { "free", "Free space" } };
+            case "cpu": keys = new[] { "temp", "graph" }; break;
+            case "fps": keys = new[] { "app", "graph" }; break;
+            case "ram": keys = new[] { "bar" }; break;
+            case "net": keys = new[] { "up", "graph" }; break;
+            case "disk": keys = new[] { "rw", "free" }; break;
+            default:
+            {
+                var g = GpuById(id); var l = new List<string>();
+                if (g != null && HasTemp(g)) l.Add("temp");
+                l.Add("mem");
+                if (g != null && HasPower(g)) l.Add("power");
+                l.Add("graph");
+                keys = l.ToArray(); break;
+            }
         }
-        var g = GpuById(id); var l = new List<string[]>();
-        if (g != null && HasTemp(g)) l.Add(new[] { "temp", "Temperature" });
-        l.Add(new[] { "mem", "Memory" });
-        if (g != null && HasPower(g)) l.Add(new[] { "power", "Power" });
-        l.Add(new[] { "graph", "Graph" });
-        return l.ToArray();
+        return Array.ConvertAll(keys, k => new[] { k, Lang.T("detail." + k) });
     }
 
     internal string[][] ColorKeys(string id)
     {
-        if (id == "net") return new[] { new[] { "net", "Download" }, new[] { "net.up", "Upload" } };
+        if (id == "net") return new[] { new[] { "net", Lang.T("color.down") }, new[] { "net.up", Lang.T("color.up") } };
         return new[] { new[] { id, null } };
     }
 
@@ -1381,98 +1385,6 @@ sealed class WidgetForm : Form
         settings.Activate();
     }
 
-    // ------------------------------------------------------------------ README screenshots (--shots)
-    internal static string ShotsDir; internal static int ShotsSecs = 60;
-    [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out RECT r, int size);
-
-    void StartShots()
-    {
-        int step = 0;
-        var t = new System.Windows.Forms.Timer { Interval = Math.Max(1, ShotsSecs) * 1000 };
-        var wa = Screen.PrimaryScreen.WorkingArea;
-        var spot = new Point(wa.Left + (int)(80 * dpi), wa.Top + (int)(80 * dpi));
-        t.Tick += delegate
-        {
-            try
-            {
-                if (step == 0)
-                {
-                    t.Interval = 900;
-                    SaveShot("widget.png");
-                    accentBg = true; UpdatePanelColor(); SaveShot("widget-accent.png");
-                    accentBg = false; UpdatePanelColor();
-                    mini = true; W = MiniWidth(); SaveShot("mini.png");
-                    mini = false; ApplyScale(); H = Measure();
-                    menu.Show(spot, ToolStripDropDownDirection.BelowRight);
-                }
-                else if (step == 1)
-                {
-                    CaptureWindow(menu.Handle, false, "menu.png"); menu.Close();
-                    OpenSettings(); settings.TopMost = true; settings.Location = spot;
-                }
-                else if (step == 2) { CaptureWindow(settings.Handle, true, "settings.png"); settings.Close(); }
-                else { t.Stop(); Close(); }
-            }
-            catch (Exception ex)
-            {
-                try { File.WriteAllText(Path.Combine(ShotsDir, "error.txt"), ex.ToString()); } catch { }
-                t.Stop(); Close();
-            }
-            step++;
-        };
-        t.Start();
-    }
-
-    // The widget drawn on its own, free-floating (no docked edges), with transparent corners.
-    void SaveShot(string name)
-    {
-        dL = dT = dR = dB = false;
-        H = Measure();
-        using (var bmp = new Bitmap(W, H, PixelFormat.Format32bppArgb))
-        {
-            using (var g = Graphics.FromImage(bmp))
-            {
-                g.Clear(Color.Transparent);
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-                g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
-                Draw(g);
-            }
-            bmp.Save(Path.Combine(ShotsDir, name), ImageFormat.Png);
-        }
-    }
-
-    // A window as it is on screen, with Windows 11's rounded corners made transparent.
-    void CaptureWindow(IntPtr hwnd, bool frame, string name)
-    {
-        RECT r;
-        if (!frame || DwmGetWindowAttribute(hwnd, 9 /*EXTENDED_FRAME_BOUNDS*/, out r, Marshal.SizeOf(typeof(RECT))) != 0) GetWindowRect(hwnd, out r);
-        int w = r.R - r.L, h = r.B - r.T;
-        using (var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb))
-        {
-            using (var g = Graphics.FromImage(bmp)) g.CopyFromScreen(r.L, r.T, 0, 0, new Size(w, h));
-            RoundCorners(bmp, 8 * dpi);
-            bmp.Save(Path.Combine(ShotsDir, name), ImageFormat.Png);
-        }
-    }
-
-    static void RoundCorners(Bitmap b, float rad)
-    {
-        int w = b.Width, h = b.Height, n = (int)Math.Ceiling(rad) + 1;
-        for (int y = 0; y < n && y < h; y++)
-            for (int x = 0; x < n && x < w; x++)
-            {
-                double dx = rad - (x + 0.5), dy = rad - (y + 0.5);
-                if (dx <= 0 || dy <= 0) continue;
-                double cover = Math.Max(0, Math.Min(1, rad - Math.Sqrt(dx * dx + dy * dy) + 0.5));
-                if (cover >= 1) continue;
-                foreach (var p in new[] { new Point(x, y), new Point(w - 1 - x, y), new Point(x, h - 1 - y), new Point(w - 1 - x, h - 1 - y) })
-                {
-                    var c = b.GetPixel(p.X, p.Y);
-                    b.SetPixel(p.X, p.Y, Color.FromArgb((int)(c.A * cover), c));
-                }
-            }
-    }
-
     // ------------------------------------------------------------------ menu / settings
     void BuildMenu()
     {
@@ -1483,25 +1395,25 @@ sealed class WidgetForm : Form
         menu.Opening += delegate
         {
             miUpdate.Visible = miUpdSep.Visible = updateTag != null;
-            if (updateTag != null) miUpdate.Text = "Update available: " + updateTag + "\u2026";
+            if (updateTag != null) miUpdate.Text = Lang.F("menu.update", updateTag);
         };
-        miTop = new ToolStripMenuItem("Always on top", null, delegate { SetOnTop(!onTop); SaveSettings(); });
-        miLock = new ToolStripMenuItem("Lock position", null, delegate { locked = !locked; SaveSettings(); });
-        var miMini = new ToolStripMenuItem("Mini mode", null, delegate { mini = !mini; Relayout(); SaveSettings(); });
-        miHide = new ToolStripMenuItem("Hide widget", null, delegate { SetHidden(!hidden); });
+        miTop = new ToolStripMenuItem(Lang.T("menu.ontop"), null, delegate { SetOnTop(!onTop); SaveSettings(); });
+        miLock = new ToolStripMenuItem(Lang.T("menu.lock"), null, delegate { locked = !locked; SaveSettings(); });
+        var miMini = new ToolStripMenuItem(Lang.T("menu.mini"), null, delegate { mini = !mini; Relayout(); SaveSettings(); });
+        miHide = new ToolStripMenuItem(Lang.T("menu.hide"), null, delegate { SetHidden(!hidden); });
         menu.Items.Add(miHide); menu.Items.Add(new ToolStripSeparator());
-        menu.Opening += delegate { miHide.Text = hidden ? "Show widget" : "Hide widget"; };
+        menu.Opening += delegate { miHide.Text = Lang.T(hidden ? "menu.unhide" : "menu.hide"); };
         menu.Items.Add(miMini);
         menu.Opening += delegate { miMini.Checked = mini; };
-        miClick = new ToolStripMenuItem("Click-through (hold Ctrl to interact)", null, delegate { SetClickThrough(!clickThrough); SaveSettings(); });
-        miStartup = new ToolStripMenuItem("Start with Windows", null, delegate { SetStartup(!IsStartup()); });
+        miClick = new ToolStripMenuItem(Lang.T("menu.clickthrough"), null, delegate { SetClickThrough(!clickThrough); SaveSettings(); });
+        miStartup = new ToolStripMenuItem(Lang.T("menu.startup"), null, delegate { SetStartup(!IsStartup()); });
         menu.Items.Add(miTop); menu.Items.Add(miLock); menu.Items.Add(miClick); menu.Items.Add(miStartup);
         menu.Closed += delegate { CheckInteractive(); };
-        var show = new ToolStripMenuItem("Show");
+        var show = new ToolStripMenuItem(Lang.T("menu.show"));
         show.DropDownItems.Add(new ToolStripMenuItem("\u2026")); // filled when opened, from the current order and mode
         show.DropDownOpening += delegate { FillShowMenu(show); };
         show.DropDown.Closing += (o, e) => { if (e.CloseReason == ToolStripDropDownCloseReason.ItemClicked) e.Cancel = true; };
-        var size = new ToolStripMenuItem("Size");
+        var size = new ToolStripMenuItem(Lang.T("menu.size"));
         foreach (int pct in new[] { 75, 90, 100, 115, 130, 150, 175 })
         {
             int p = pct; var it = new ToolStripMenuItem(p + "%");
@@ -1509,7 +1421,7 @@ sealed class WidgetForm : Form
             size.DropDownItems.Add(it);
         }
         size.DropDownOpening += delegate { foreach (ToolStripMenuItem it in size.DropDownItems) it.Checked = it.Text == ((int)Math.Round(scale * 100)) + "%"; };
-        var op = new ToolStripMenuItem("Opacity");
+        var op = new ToolStripMenuItem(Lang.T("menu.opacity"));
         foreach (int pct in new[] { 100, 90, 80, 70, 60, 50, 40, 30 })
         {
             int p = pct; var it = new ToolStripMenuItem(p + "%");
@@ -1517,18 +1429,18 @@ sealed class WidgetForm : Form
             op.DropDownItems.Add(it);
         }
         op.DropDownOpening += delegate { foreach (ToolStripMenuItem it in op.DropDownItems) it.Checked = it.Text == opacity + "%"; };
-        var bgm = new ToolStripMenuItem("Background");
-        var bgDark = new ToolStripMenuItem("Dark", null, delegate { SetAccentBg(false); });
-        var bgAccent = new ToolStripMenuItem("Windows accent color", null, delegate { SetAccentBg(true); });
+        var bgm = new ToolStripMenuItem(Lang.T("menu.background"));
+        var bgDark = new ToolStripMenuItem(Lang.T("menu.bg.dark"), null, delegate { SetAccentBg(false); });
+        var bgAccent = new ToolStripMenuItem(Lang.T("menu.bg.accent"), null, delegate { SetAccentBg(true); });
         bgm.DropDownItems.Add(bgDark); bgm.DropDownItems.Add(bgAccent);
         bgm.DropDownOpening += delegate { bgDark.Checked = !accentBg; bgAccent.Checked = accentBg; };
-        var pos = new ToolStripMenuItem("Position");
+        var pos = new ToolStripMenuItem(Lang.T("menu.position"));
         string[] codes = { "TL", "TC", "TR", "-", "ML", "MC", "MR", "-", "BL", "BC", "BR" };
-        string[] names = { "Top left", "Top center", "Top right", "", "Middle left", "Center", "Middle right", "", "Bottom left", "Bottom center", "Bottom right" };
+
         for (int i = 0; i < codes.Length; i++)
         {
             if (codes[i] == "-") { pos.DropDownItems.Add(new ToolStripSeparator()); continue; }
-            string c = codes[i]; var it = new ToolStripMenuItem(names[i]) { Tag = c };
+            string c = codes[i]; var it = new ToolStripMenuItem(Lang.T("pos." + c.ToLowerInvariant())) { Tag = c };
             it.Click += delegate { SnapTo(c); };
             pos.DropDownItems.Add(it);
         }
@@ -1538,16 +1450,16 @@ sealed class WidgetForm : Form
         };
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(pos); menu.Items.Add(show); menu.Items.Add(size); menu.Items.Add(op); menu.Items.Add(bgm);
-        menu.Items.Add(new ToolStripMenuItem("Settings\u2026", null, delegate { OpenSettings(); }));
+        menu.Items.Add(new ToolStripMenuItem(Lang.T("menu.settings"), null, delegate { OpenSettings(); }));
         menu.Items.Add(new ToolStripSeparator());
-        var miChk = new ToolStripMenuItem("Check for updates", null, delegate { checkUpdates = !checkUpdates; SaveSettings(); if (checkUpdates) CheckForUpdate(); });
+        var miChk = new ToolStripMenuItem(Lang.T("menu.updates"), null, delegate { checkUpdates = !checkUpdates; SaveSettings(); if (checkUpdates) CheckForUpdate(); });
         menu.Opening += delegate { miChk.Checked = checkUpdates; };
         menu.Items.Add(miChk);
-        menu.Items.Add(new ToolStripMenuItem("Task Manager", null, delegate { OpenTaskManager(); }));
-        menu.Items.Add(new ToolStripMenuItem("Exit", null, delegate { Close(); }));
+        menu.Items.Add(new ToolStripMenuItem(Lang.T("menu.taskmgr"), null, delegate { OpenTaskManager(); }));
+        menu.Items.Add(new ToolStripMenuItem(Lang.T("menu.exit"), null, delegate { Close(); }));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(new ToolStripMenuItem("SysWidget v" + VersionText + "  \u00B7  by Dimokat", null, delegate { OpenUrl("https://github.com/" + Repo); }) { Name = "dim" });
-        menu.Items.Add(new ToolStripMenuItem("Support the developer \u2665", null, delegate { OpenUrl(DonateUrl); }));
+        menu.Items.Add(new ToolStripMenuItem(Lang.F("menu.about", VersionText, "Dimokat"), null, delegate { OpenUrl("https://github.com/" + Repo); }) { Name = "dim" });
+        menu.Items.Add(new ToolStripMenuItem(Lang.T("menu.donate"), null, delegate { OpenUrl(DonateUrl); }));
         menu.Opening += delegate { miTop.Checked = onTop; miLock.Checked = locked; miClick.Checked = clickThrough; miStartup.Checked = IsStartup(); };
         // Submenus open toward the inside of the screen the menu is on (also when opened from the tray).
         menu.Opening += delegate
@@ -1558,7 +1470,8 @@ sealed class WidgetForm : Form
             foreach (ToolStripItem it in menu.Items) { var mi = it as ToolStripMenuItem; if (mi != null && mi.HasDropDownItems) mi.DropDownDirection = dir; }
         };
         StyleMenu(menu);
-        menuWatch.Tick += delegate { WatchMenu(); };
+        if (!menuWatchHooked) { menuWatchHooked = true; menuWatch.Tick += delegate { WatchMenu(); }; }
+        menu.Closed += delegate { if (langPending) BeginInvoke((MethodInvoker)ApplyLanguage); };
         menu.Opened += delegate { menuWatch.Start(); };
         menu.Closed += delegate { menuWatch.Stop(); };
     }
@@ -1566,6 +1479,7 @@ sealed class WidgetForm : Form
     // The widget never takes focus, so Windows doesn't tell the menu when you click another app.
     // While the menu is open, close it on a click outside it (or Esc) - without stealing focus from games.
     readonly System.Windows.Forms.Timer menuWatch = new System.Windows.Forms.Timer { Interval = 40 };
+    bool menuWatchHooked, langPending;
     static bool Down(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; }
     void WatchMenu()
     {
@@ -1671,11 +1585,8 @@ sealed class WidgetForm : Form
     }
     void StyleMenu(ToolStripDropDownMenu dd)
     {
-        if (menuLook == null)
-        {
-            menuLook = new MenuLook(dpi);
-            menuFont = new Font("Segoe UI", 9.75f); menuBold = new Font("Segoe UI Semibold", 9.75f);
-        }
+        if (menuLook == null) menuLook = new MenuLook(dpi);
+        if (menuFont == null) { menuFont = Lang.MakeFont(9.75f, false); menuBold = Lang.MakeFont(9.75f, true); }
         dd.Renderer = menuLook; dd.Font = menuFont;
         dd.ShowImageMargin = false; dd.ShowCheckMargin = true; dd.DropShadowEnabled = false;
         int v = (int)Math.Round(5 * dpi); dd.Padding = new Padding(0, v, 0, v);
@@ -1716,7 +1627,7 @@ sealed class WidgetForm : Form
             StyleItem(it); show.DropDownItems.Add(it);
         }
         show.DropDownItems.Add(new ToolStripSeparator());
-        var more = new ToolStripMenuItem("More options\u2026", null, delegate { show.DropDown.Close(); menu.Close(); OpenSettings(); });
+        var more = new ToolStripMenuItem(Lang.T("menu.more"), null, delegate { show.DropDown.Close(); menu.Close(); OpenSettings(); });
         StyleItem(more); show.DropDownItems.Add(more);
     }
 
@@ -1754,11 +1665,11 @@ sealed class WidgetForm : Form
     {
         if (tray == null) return;
         var sb = new StringBuilder("SysWidget");
-        sb.Append("\nCPU ").Append(cpu.ToString("0", CI)).Append('%');
-        foreach (var g in gpus) if (!g.Idle && IsLive("gpu:" + g.Key)) sb.Append("  \u00B7  ").Append(g.Label).Append(' ').Append(g.Load.ToString("0", CI)).Append('%');
-        sb.Append("\nRAM ").Append(ramUsed.ToString("0.0", CI)).Append(" / ").Append(ramTotal.ToString("0", CI)).Append(" GB");
-        if (fpsVal > 0) sb.Append("  \u00B7  ").Append(fpsVal.ToString("0", CI)).Append(" FPS");
-        if (updateTag != null) sb.Append("\nUpdate ").Append(updateTag).Append(" available");
+        sb.Append('\n').Append(Lang.T("label.cpu")).Append(' ').Append(Pct(cpu));
+        foreach (var g in gpus) if (!g.Idle && IsLive("gpu:" + g.Key)) sb.Append("  \u00B7  ").Append(GpuLabel(g)).Append(' ').Append(Pct(g.Load));
+        sb.Append('\n').Append(Lang.T("label.ram")).Append(' ').Append(Lang.F("ram.value", N(ramUsed, "0.0"), N(ramTotal, "0")));
+        if (fpsVal > 0) sb.Append("  \u00B7  ").Append(N(fpsVal, "0")).Append(' ').Append(Lang.T("label.fps"));
+        if (updateTag != null) sb.Append('\n').Append(Lang.F("tray.update", updateTag));
         string t = sb.Length > 63 ? sb.ToString(0, 63) : sb.ToString(); // NotifyIcon's limit
         if (t != trayText) { trayText = t; tray.Text = t; }
     }
@@ -1781,6 +1692,7 @@ sealed class WidgetForm : Form
     void CheckForUpdate()
     {
         if (!checkUpdates) return;
+        CheckTranslation();
         ThreadPool.QueueUserWorkItem(delegate
         {
             try
@@ -1800,12 +1712,109 @@ sealed class WidgetForm : Form
                     if (tray != null && notifiedTag != t)
                     {
                         notifiedTag = t;
-                        tray.ShowBalloonTip(8000, "SysWidget " + t + " is available", "Click to open the download page.", ToolTipIcon.Info);
+                        tray.ShowBalloonTip(8000, Lang.F("notify.update.title", t), Lang.T("notify.update.text"), ToolTipIcon.Info);
                     }
                 });
             }
             catch { } // offline, no releases yet, rate-limited: just try again next time
         });
+    }
+
+    // ---- translations: the file for the current language is refreshed from the repo's main branch, so a
+    // translation merged on GitHub reaches everyone without a new release. Only text is downloaded; Lang.Parse
+    // keeps known keys with valid placeholders, so a bad file can only fall back to English.
+    void CheckTranslation()
+    {
+        var codes = new List<string>();
+        if (Lang.Code != "en") codes.Add(Lang.Code);
+        else foreach (var c in Lang.Candidates(langChoice)) { if (c == "en" || codes.Count == 2) break; codes.Add(c); }
+        if (codes.Count == 0 || Lang.CacheDir == null) return;
+        ThreadPool.QueueUserWorkItem(delegate
+        {
+            bool changed = false;
+            foreach (var c in codes)
+            {
+                try
+                {
+                    Directory.CreateDirectory(Lang.CacheDir);
+                    string file = Path.Combine(Lang.CacheDir, c + ".txt"), etagFile = Path.Combine(Lang.CacheDir, c + ".etag");
+                    var req = (HttpWebRequest)WebRequest.Create("https://raw.githubusercontent.com/" + Repo + "/main/lang/" + Uri.EscapeDataString(c) + ".txt");
+                    req.UserAgent = "SysWidget/" + VersionText; req.Timeout = 15000;
+                    if (File.Exists(file) && File.Exists(etagFile)) req.Headers[HttpRequestHeader.IfNoneMatch] = File.ReadAllText(etagFile).Trim();
+                    using (var resp = (HttpWebResponse)req.GetResponse())
+                    using (var rd = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+                    {
+                        var buf = new char[256 * 1024]; int n = rd.ReadBlock(buf, 0, buf.Length);
+                        string text = new string(buf, 0, n);
+                        if (n == buf.Length || !Lang.LooksValid(text)) continue;
+                        string old = File.Exists(file) ? File.ReadAllText(file, Encoding.UTF8) : null;
+                        if (old != text) { File.WriteAllText(file, text, new UTF8Encoding(false)); changed = true; }
+                        string etag = resp.Headers[HttpResponseHeader.ETag];
+                        if (!string.IsNullOrEmpty(etag)) File.WriteAllText(etagFile, etag);
+                    }
+                    break;
+                }
+                catch (WebException ex)
+                {
+                    var r = ex.Response as HttpWebResponse;
+                    if (r != null && r.StatusCode == HttpStatusCode.NotModified) break; // our copy is current
+                    // 404: the repo has no file for this code, try the next one; offline: try again next time
+                }
+                catch { }
+            }
+            if (changed) BeginInvoke((MethodInvoker)ApplyLanguage);
+        });
+    }
+
+    // ---- language: "" follows Windows; a change re-creates fonts and the menu and redraws everything
+    string langChoice = "";
+    internal string LanguageChoice { get { return langChoice; } }
+
+    internal void SetLanguage(string c)
+    {
+        langChoice = c ?? ""; SaveSettings(); ApplyLanguage();
+        CheckTranslation();
+    }
+
+    void ApplyLanguage()
+    {
+        if (menu != null && menu.Visible) { langPending = true; return; }
+        langPending = false;
+        Lang.Load(langChoice);
+        ApplyScale();
+        if (menuFont != null) { menuFont.Dispose(); menuBold.Dispose(); menuFont = menuBold = null; }
+        var old = menu;
+        menuDropDowns.Clear(); toolWindowKeepers.Clear();
+        BuildMenu();
+        if (tray != null) tray.ContextMenuStrip = menu;
+        if (old != null) old.Dispose();
+        if (langMenu != null) { langMenu.Dispose(); langMenu = null; }
+        trayText = ""; UpdateTray();
+        Relayout();
+        if (settings != null && !settings.IsDisposed) settings.LanguageChanged();
+    }
+
+    // The language list in Settings: Automatic first, then every available language by its own name.
+    ToolMenu langMenu;
+    internal void ShowLanguageMenu(Control owner, Point at)
+    {
+        if (langMenu != null) { menuDropDowns.Remove(langMenu); langMenu.Dispose(); }
+        langMenu = new ToolMenu();
+        var auto = new ToolStripMenuItem(Lang.F("settings.language.auto", Lang.NativeName(Lang.AutoCode()))) { Checked = langChoice == "" };
+        auto.Click += delegate { SetLanguage(""); };
+        langMenu.Items.Add(auto);
+        langMenu.Items.Add(new ToolStripSeparator());
+        var codes = Lang.Available();
+        codes.Sort((a, b) => string.Compare(Lang.NativeName(a), Lang.NativeName(b), StringComparison.CurrentCultureIgnoreCase));
+        foreach (var code in codes)
+        {
+            string c = code;
+            var it = new ToolStripMenuItem(Lang.NativeName(c)) { Checked = langChoice.Equals(c, StringComparison.OrdinalIgnoreCase) };
+            it.Click += delegate { SetLanguage(c); };
+            langMenu.Items.Add(it);
+        }
+        StyleMenu(langMenu);
+        langMenu.Show(owner, at);
     }
 
     // Open links through Explorer so the browser doesn't inherit the widget's admin rights.
@@ -1884,6 +1893,7 @@ sealed class WidgetForm : Form
                 else if (k == "mini") mini = v == "1";
                 else if (k == "hidden") hidden = v == "1";
                 else if (k == "bg") accentBg = v == "accent";
+                else if (k == "lang") langChoice = Regex.IsMatch(v, @"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$") ? v : "";
                 else if (k == "fps") legacyFps = v;
                 else if (k == "order") order = Split(v);
                 else if (k == "hide") { hiddenFull.Clear(); hiddenFull.UnionWith(Split(v)); hasHide = true; }
@@ -1927,7 +1937,7 @@ sealed class WidgetForm : Form
         {
             File.WriteAllLines(iniPath, new[] {
                 "x=" + (Left + M).ToString(CI), "y=" + (Top + M).ToString(CI),
-                "ontop=" + (onTop ? "1" : "0"), "locked=" + (locked ? "1" : "0"), "clickthrough=" + (clickThrough ? "1" : "0"), "mini=" + (mini ? "1" : "0"), "hidden=" + (hidden ? "1" : "0"), "bg=" + (accentBg ? "accent" : "dark"), "updates=" + (checkUpdates ? "1" : "0"), "anchor=" + anchor,
+                "ontop=" + (onTop ? "1" : "0"), "locked=" + (locked ? "1" : "0"), "clickthrough=" + (clickThrough ? "1" : "0"), "mini=" + (mini ? "1" : "0"), "hidden=" + (hidden ? "1" : "0"), "bg=" + (accentBg ? "accent" : "dark"), "lang=" + langChoice, "updates=" + (checkUpdates ? "1" : "0"), "anchor=" + anchor,
                 "scale=" + scale.ToString(CI), "opacity=" + opacity.ToString(CI),
                 "order=" + string.Join(",", order), "hide=" + string.Join(",", hiddenFull), "minihide=" + string.Join(",", hiddenMini),
                 "off=" + string.Join(",", detailsOff), "compact=" + (compact ? "1" : "0"), "colors=" + ColorsText() });

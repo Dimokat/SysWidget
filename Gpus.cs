@@ -13,7 +13,7 @@ sealed class Gpu
 {
     public string Key;          // stable id, e.g. "10DE-25A2"
     public string Name;         // short name, e.g. "RTX 3050"
-    public string Label;        // "GPU", "iGPU", "GPU2"...
+    public int Number;          // 1, 2... when there are several of the same kind (discrete / integrated), else 0
     public bool Integrated;
     public int Vendor, Device;
     public uint LuidLow; public int LuidHigh;
@@ -30,7 +30,6 @@ sealed class Gpu
 
     public bool IsNvidia { get { return Vendor == 0x10DE; } }
     public bool IsAmd { get { return Vendor == 0x1002; } }
-    public string MemLabel { get { return Integrated ? "Memory" : "VRAM"; } }
 }
 
 static class Gpus
@@ -116,8 +115,8 @@ static class Gpus
             string k = string.Format("{0:X4}-{1:X4}", g.Vendor, g.Device); int n;
             keys[k] = keys.TryGetValue(k, out n) ? n + 1 : 1;
             g.Key = keys[k] > 1 ? k + "-" + keys[k] : k;
-            if (g.Integrated) g.Label = ni > 1 ? "iGPU" + (++ki) : "iGPU";
-            else g.Label = nd > 1 ? "GPU" + (++kd) : "GPU";
+            if (g.Integrated) g.Number = ni > 1 ? ++ki : 0;
+            else g.Number = nd > 1 ? ++kd : 0;
         }
         return list;
     }

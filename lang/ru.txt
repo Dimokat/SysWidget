@@ -1,0 +1,130 @@
+# SysWidget - ru. Translated from lang/en.txt (see that file for the format).
+# Fixes and improvements are welcome: edit this file and open a pull request.
+# ---- Widget: short section labels (like the column names in Task Manager)
+label.cpu = ЦП
+label.gpu = ГП
+label.igpu = Встр. ГП
+label.fps = FPS
+label.ram = ОЗУ
+label.net = СЕТЬ
+label.disk = ДИСК
+
+# ---- Widget: values
+gpu.vram = Видеопамять {0} / {1} ГБ
+gpu.memory = Память {0} / {1} ГБ
+gpu.idle = простой (от батареи)
+gpu.idle.short = простой
+fps.noapp = нет активной программы
+fps.admin = нужен администратор
+fps.error = ошибка
+ram.value = {0} / {1} ГБ
+ram.short = {0} ГБ
+disk.free = свободно {0} ГБ из {1}
+disk.short = {0} ГБ
+disk.read = Чит {0}
+disk.write = Зап {0}
+unit.bps = {0} Б/с
+unit.kbps = {0} КБ/с
+unit.mbps = {0} МБ/с
+unit.watts = {0} Вт
+
+# ---- Section names in menus and settings
+section.cpu = ЦП
+section.fps = FPS
+section.ram = ОЗУ
+section.net = Сеть
+section.disk = Диски
+
+# ---- Right-click menu
+menu.update = Доступно обновление: {0}…
+menu.hide = Скрыть виджет
+menu.unhide = Показать виджет
+menu.mini = Мини-режим
+menu.ontop = Поверх других окон
+menu.lock = Закрепить положение
+menu.clickthrough = Пропускать клики (удерживайте Ctrl для взаимодействия)
+menu.startup = Запускать вместе с Windows
+menu.position = Положение
+menu.show = Показывать
+menu.size = Размер
+menu.opacity = Непрозрачность
+menu.background = Фон
+menu.bg.dark = Тёмный
+menu.bg.accent = Цвет акцента Windows
+menu.settings = Настройки…
+menu.more = Другие параметры…
+menu.updates = Проверять обновления
+menu.taskmgr = Диспетчер задач
+menu.exit = Выход
+menu.about = SysWidget v{0}  ·  автор: {1}
+menu.donate = Поддержать разработчика ♥
+pos.tl = Вверху слева
+pos.tc = Вверху по центру
+pos.tr = Вверху справа
+pos.ml = Посередине слева
+pos.mc = По центру
+pos.mr = Посередине справа
+pos.bl = Внизу слева
+pos.bc = Внизу по центру
+pos.br = Внизу справа
+
+# ---- Tray icon and notifications
+tray.update = Доступно обновление {0}
+notify.update.title = Доступна новая версия SysWidget {0}
+notify.update.text = Нажмите, чтобы открыть страницу загрузки.
+
+# ---- Settings window
+settings.title = Настройки SysWidget
+settings.tab.sections = Разделы
+settings.tab.mini = Мини-режим
+settings.tab.appearance = Вид
+settings.sections.note = Включайте и отключайте разделы, меняйте их порядок, цвет и то, что показывает каждый из них.
+settings.mini.note = Выберите, что показывает однострочный мини-режим. Порядок, цвета и детали (температура, отправка) те же, что на вкладке «Разделы».
+settings.layout = Компоновка
+settings.layout.normal = Обычная
+settings.layout.compact = Компактная
+settings.language = Язык
+settings.language.auto = Автоматически ({0})
+settings.language.note = Переводы обновляются с GitHub, пока включено «Проверять обновления».
+settings.reset = Сбросить разделы, детали и цвета
+detail.temp = Температура
+detail.graph = График
+detail.mem = Память
+detail.power = Мощность
+detail.app = Имя программы
+detail.bar = Полоса использования
+detail.up = Отправка
+detail.rw = Чтение / запись
+detail.free = Свободное место
+color.down = Загрузка
+color.up = Отправка
+
+# ---- Installer
+setup.title = Установка SysWidget
+setup.title.uninstall = Удаление SysWidget
+setup.version = v{0}   ·   автор: {1}
+setup.desc = Небольшой виджет для рабочего стола: ЦП, ГП, FPS, ОЗУ, сеть и диски.\nБудет установлен в {0}
+setup.desc.uninstall = SysWidget, его ярлыки и задача автозапуска будут удалены с этого ПК.
+setup.opt.settings = Также удалить мои настройки
+setup.opt.startup = Запускать вместе с Windows (нужно и для счётчика FPS)
+setup.opt.startmenu = Ярлык в меню «Пуск»
+setup.opt.desktop = Ярлык на рабочем столе
+setup.opt.launch = Запустить SysWidget после завершения
+setup.btn.install = Установить
+setup.btn.update = Обновить
+setup.btn.uninstall = Удалить
+setup.btn.cancel = Отмена
+setup.btn.close = Закрыть
+setup.extract = Сначала распакуйте весь архив, затем запустите Setup.exe из этой папки.
+setup.err.nosource = SysWidget.exe не найден рядом с Setup.exe.\n\nСначала распакуйте весь архив в папку, затем запустите Setup.exe оттуда.
+setup.err.task = Не удалось создать задачу автозапуска (код выхода schtasks: {0}).
+setup.st.stopping = Остановка SysWidget…
+setup.st.copying = Копирование файлов…
+setup.st.startup = Настройка автозапуска…
+setup.st.shortcuts = Создание ярлыков…
+setup.st.registering = Регистрация в списке установленных программ…
+setup.st.removing = Удаление…
+setup.st.removed = SysWidget удалён.
+setup.st.done = Готово! SysWidget установлен.
+setup.st.failed = Что-то пошло не так.
+setup.shortcut = SysWidget — виджет мониторинга системы

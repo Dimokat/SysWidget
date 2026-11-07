@@ -53,11 +53,19 @@ FPS is read from Windows' own graphics event tracing (the same source PresentMon
 
 In true *exclusive* fullscreen no normal window can be drawn over a game. Use borderless/windowed fullscreen to see the widget in-game.
 
+## Languages
+
+SysWidget follows your Windows display language (*Settings → Time & language → Language & region*), and you can pick another one in **Settings → Appearance → Language**. Numbers follow your Windows regional format.
+
+Built in: English · Українська · Русский · Polski · Čeština · Română · Magyar · Deutsch · Nederlands · Français · Español · Italiano · Português (Brasil) · Português (Portugal) · Türkçe · 日本語 · 한국어 · 中文 (简体) · 中文 (繁體) · Tiếng Việt · Bahasa Indonesia
+
+Any other language shows English.
+
+**Helping with translations.** Translations are plain text files in [`lang/`](lang). To fix one or add a language, edit or add `lang/<code>.txt` and open a pull request; [lang/README.md](lang/README.md) explains the format. Once it's merged, SysWidget downloads it from this repository on its next update check (while **Check for updates** is on), so it reaches people without a new release.
+
 ## Building
 
 No IDE or SDK needed. Run **build.bat**. It takes the version from the latest git tag and uses the C# compiler that's built into Windows (`csc.exe` from .NET Framework 4.x) and produces `SysWidget.exe` and `Setup.exe`.
-
-The screenshots in `docs/` come from the widget itself: `SysWidget.exe --shots docs 60` records for 60 seconds (so the graphs fill up), saves the PNGs and exits. Run it as admin with the regular widget closed, so the FPS section works.
 
 ## Releasing
 

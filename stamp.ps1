@@ -17,4 +17,7 @@ foreach ($f in 'SysWidget.cs', 'Setup.cs') {
     }
     [IO.File]::WriteAllText("$root\obj\$f", $s, (New-Object Text.UTF8Encoding($true)))
 }
+# Every translation in lang\ is built into both programs as a resource named lang.<code>.txt.
+$rsp = @(Get-ChildItem "$root\lang" -Filter *.txt | Sort-Object Name | ForEach-Object { "/resource:lang\$($_.Name),lang.$($_.Name)" })
+[IO.File]::WriteAllLines("$root\obj\lang.rsp", [string[]]$rsp)
 if ($ok) { "Version $v" } else { 'Version: as in the sources (no git tag found)' }

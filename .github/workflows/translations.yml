@@ -1,0 +1,18 @@
+name: Translations
+
+# Checks translation files on pull requests (and on main), so a broken file can't be merged by accident.
+on:
+  pull_request:
+    paths: ['lang/**', 'tools/check-lang.ps1']
+  push:
+    branches: [main]
+    paths: ['lang/**', 'tools/check-lang.ps1']
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check translation files
+        shell: pwsh
+        run: ./tools/check-lang.ps1

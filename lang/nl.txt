@@ -1,0 +1,130 @@
+# SysWidget - nl. Translated from lang/en.txt (see that file for the format).
+# Fixes and improvements are welcome: edit this file and open a pull request.
+# ---- Widget: short section labels (like the column names in Task Manager)
+label.cpu = CPU
+label.gpu = GPU
+label.igpu = iGPU
+label.fps = FPS
+label.ram = RAM
+label.net = NETWERK
+label.disk = SCHIJF
+
+# ---- Widget: values
+gpu.vram = VRAM {0} / {1} GB
+gpu.memory = Geheugen {0} / {1} GB
+gpu.idle = inactief (op accu)
+gpu.idle.short = inactief
+fps.noapp = geen actieve app
+fps.admin = beheerder nodig
+fps.error = fout
+ram.value = {0} / {1} GB
+ram.short = {0} GB
+disk.free = {0} GB vrij van {1}
+disk.short = {0} GB
+disk.read = L {0}
+disk.write = S {0}
+unit.bps = {0} B/s
+unit.kbps = {0} KB/s
+unit.mbps = {0} MB/s
+unit.watts = {0} W
+
+# ---- Section names in menus and settings
+section.cpu = CPU
+section.fps = FPS
+section.ram = RAM
+section.net = Netwerk
+section.disk = Schijven
+
+# ---- Right-click menu
+menu.update = Update beschikbaar: {0}…
+menu.hide = Widget verbergen
+menu.unhide = Widget weergeven
+menu.mini = Minimodus
+menu.ontop = Altijd op voorgrond
+menu.lock = Positie vergrendelen
+menu.clickthrough = Klikken doorlaten (houd Ctrl ingedrukt om te bedienen)
+menu.startup = Starten met Windows
+menu.position = Positie
+menu.show = Weergeven
+menu.size = Grootte
+menu.opacity = Dekking
+menu.background = Achtergrond
+menu.bg.dark = Donker
+menu.bg.accent = Windows-accentkleur
+menu.settings = Instellingen…
+menu.more = Meer opties…
+menu.updates = Controleren op updates
+menu.taskmgr = Taakbeheer
+menu.exit = Afsluiten
+menu.about = SysWidget v{0}  ·  door {1}
+menu.donate = Steun de ontwikkelaar ♥
+pos.tl = Linksboven
+pos.tc = Midden boven
+pos.tr = Rechtsboven
+pos.ml = Midden links
+pos.mc = Midden
+pos.mr = Midden rechts
+pos.bl = Linksonder
+pos.bc = Midden onder
+pos.br = Rechtsonder
+
+# ---- Tray icon and notifications
+tray.update = Update {0} beschikbaar
+notify.update.title = SysWidget {0} is beschikbaar
+notify.update.text = Klik om de downloadpagina te openen.
+
+# ---- Settings window
+settings.title = SysWidget-instellingen
+settings.tab.sections = Onderdelen
+settings.tab.mini = Minimodus
+settings.tab.appearance = Weergave
+settings.sections.note = Zet onderdelen aan of uit, wijzig hun volgorde, kies hun kleur en wat elk onderdeel toont.
+settings.mini.note = Kies wat de minimodus van één regel toont. Hij gebruikt dezelfde volgorde, kleuren en details (temperatuur, upload) als het tabblad Onderdelen.
+settings.layout = Indeling
+settings.layout.normal = Normaal
+settings.layout.compact = Compact
+settings.language = Taal
+settings.language.auto = Automatisch ({0})
+settings.language.note = Vertalingen worden bijgewerkt vanaf GitHub zolang ‘Controleren op updates’ aan staat.
+settings.reset = Onderdelen, details en kleuren herstellen
+detail.temp = Temperatuur
+detail.graph = Grafiek
+detail.mem = Geheugen
+detail.power = Vermogen
+detail.app = App-naam
+detail.bar = Gebruiksbalk
+detail.up = Upload
+detail.rw = Lezen / schrijven
+detail.free = Vrije ruimte
+color.down = Download
+color.up = Upload
+
+# ---- Installer
+setup.title = SysWidget installeren
+setup.title.uninstall = SysWidget verwijderen
+setup.version = v{0}   ·   door {1}
+setup.desc = Een kleine bureaubladwidget met CPU, GPU, FPS, RAM, netwerk en schijven.\nWordt geïnstalleerd in {0}
+setup.desc.uninstall = Hiermee worden SysWidget, de snelkoppelingen en de opstarttaak van deze pc verwijderd.
+setup.opt.settings = Ook mijn instellingen verwijderen
+setup.opt.startup = Starten met Windows (ook nodig voor de FPS-teller)
+setup.opt.startmenu = Snelkoppeling in het Startmenu
+setup.opt.desktop = Snelkoppeling op het bureaublad
+setup.opt.launch = SysWidget starten als het klaar is
+setup.btn.install = Installeren
+setup.btn.update = Bijwerken
+setup.btn.uninstall = Verwijderen
+setup.btn.cancel = Annuleren
+setup.btn.close = Sluiten
+setup.extract = Pak eerst het hele zip-bestand uit en start daarna Setup.exe vanuit die map.
+setup.err.nosource = SysWidget.exe is niet gevonden naast Setup.exe.\n\nPak eerst het hele zip-bestand uit naar een map en start Setup.exe vanaf daar.
+setup.err.task = Kan de opstarttaak niet maken (afsluitcode van schtasks: {0}).
+setup.st.stopping = SysWidget stoppen…
+setup.st.copying = Bestanden kopiëren…
+setup.st.startup = Opstarten instellen…
+setup.st.shortcuts = Snelkoppelingen maken…
+setup.st.registering = Registreren bij geïnstalleerde apps…
+setup.st.removing = Verwijderen…
+setup.st.removed = SysWidget is verwijderd.
+setup.st.done = Klaar! SysWidget is geïnstalleerd.
+setup.st.failed = Er is iets misgegaan.
+setup.shortcut = SysWidget - systeemmonitorwidget

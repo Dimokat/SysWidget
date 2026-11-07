@@ -1,0 +1,130 @@
+# SysWidget - ro. Translated from lang/en.txt (see that file for the format).
+# Fixes and improvements are welcome: edit this file and open a pull request.
+# ---- Widget: short section labels (like the column names in Task Manager)
+label.cpu = CPU
+label.gpu = GPU
+label.igpu = iGPU
+label.fps = FPS
+label.ram = RAM
+label.net = REȚEA
+label.disk = DISC
+
+# ---- Widget: values
+gpu.vram = VRAM {0} / {1} GB
+gpu.memory = Memorie {0} / {1} GB
+gpu.idle = inactiv (pe baterie)
+gpu.idle.short = inactiv
+fps.noapp = nicio aplicație activă
+fps.admin = necesită administrator
+fps.error = eroare
+ram.value = {0} / {1} GB
+ram.short = {0} GB
+disk.free = {0} GB liberi din {1}
+disk.short = {0} GB
+disk.read = C {0}
+disk.write = S {0}
+unit.bps = {0} B/s
+unit.kbps = {0} KB/s
+unit.mbps = {0} MB/s
+unit.watts = {0} W
+
+# ---- Section names in menus and settings
+section.cpu = CPU
+section.fps = FPS
+section.ram = RAM
+section.net = Rețea
+section.disk = Discuri
+
+# ---- Right-click menu
+menu.update = Actualizare disponibilă: {0}…
+menu.hide = Ascunde widgetul
+menu.unhide = Afișează widgetul
+menu.mini = Mod mini
+menu.ontop = Mereu deasupra
+menu.lock = Blochează poziția
+menu.clickthrough = Click-uri prin widget (țineți Ctrl pentru a interacționa)
+menu.startup = Pornește odată cu Windows
+menu.position = Poziție
+menu.show = Afișează
+menu.size = Dimensiune
+menu.opacity = Opacitate
+menu.background = Fundal
+menu.bg.dark = Întunecat
+menu.bg.accent = Culoarea de accent Windows
+menu.settings = Setări…
+menu.more = Mai multe opțiuni…
+menu.updates = Caută actualizări
+menu.taskmgr = Manager de activități
+menu.exit = Ieșire
+menu.about = SysWidget v{0}  ·  de {1}
+menu.donate = Susține dezvoltatorul ♥
+pos.tl = Sus stânga
+pos.tc = Sus centru
+pos.tr = Sus dreapta
+pos.ml = Mijloc stânga
+pos.mc = Centru
+pos.mr = Mijloc dreapta
+pos.bl = Jos stânga
+pos.bc = Jos centru
+pos.br = Jos dreapta
+
+# ---- Tray icon and notifications
+tray.update = Actualizare {0} disponibilă
+notify.update.title = SysWidget {0} este disponibil
+notify.update.text = Faceți clic pentru a deschide pagina de descărcare.
+
+# ---- Settings window
+settings.title = Setări SysWidget
+settings.tab.sections = Secțiuni
+settings.tab.mini = Mod mini
+settings.tab.appearance = Aspect
+settings.sections.note = Activați sau dezactivați secțiunile, reordonați-le, alegeți-le culorile și ce afișează fiecare.
+settings.mini.note = Alegeți ce afișează modul mini pe un singur rând. Folosește aceeași ordine, culori și detalii (temperatură, încărcare) ca fila Secțiuni.
+settings.layout = Aranjare
+settings.layout.normal = Normal
+settings.layout.compact = Compact
+settings.language = Limbă
+settings.language.auto = Automat ({0})
+settings.language.note = Traducerile se actualizează de pe GitHub cât timp „Caută actualizări” este activat.
+settings.reset = Resetează secțiunile, detaliile și culorile
+detail.temp = Temperatură
+detail.graph = Grafic
+detail.mem = Memorie
+detail.power = Putere
+detail.app = Numele aplicației
+detail.bar = Bară de utilizare
+detail.up = Încărcare
+detail.rw = Citire / scriere
+detail.free = Spațiu liber
+color.down = Descărcare
+color.up = Încărcare
+
+# ---- Installer
+setup.title = Instalare SysWidget
+setup.title.uninstall = Dezinstalare SysWidget
+setup.version = v{0}   ·   de {1}
+setup.desc = Un widget mic pentru desktop cu date despre CPU, GPU, FPS, RAM, rețea și discuri.\nSe instalează în {0}
+setup.desc.uninstall = Aceasta elimină SysWidget, comenzile sale rapide și activitatea de pornire de pe acest PC.
+setup.opt.settings = Elimină și setările mele
+setup.opt.startup = Pornește odată cu Windows (necesar și pentru contorul FPS)
+setup.opt.startmenu = Comandă rapidă în meniul Start
+setup.opt.desktop = Comandă rapidă pe desktop
+setup.opt.launch = Pornește SysWidget la final
+setup.btn.install = Instalează
+setup.btn.update = Actualizează
+setup.btn.uninstall = Dezinstalează
+setup.btn.cancel = Anulare
+setup.btn.close = Închide
+setup.extract = Mai întâi extrageți întreaga arhivă, apoi rulați Setup.exe din acel folder.
+setup.err.nosource = SysWidget.exe nu a fost găsit lângă Setup.exe.\n\nMai întâi extrageți întreaga arhivă într-un folder, apoi rulați Setup.exe de acolo.
+setup.err.task = Nu s-a putut crea activitatea de pornire (cod de ieșire schtasks: {0}).
+setup.st.stopping = Se oprește SysWidget…
+setup.st.copying = Se copiază fișierele…
+setup.st.startup = Se configurează pornirea…
+setup.st.shortcuts = Se creează comenzile rapide…
+setup.st.registering = Se înregistrează în lista de aplicații instalate…
+setup.st.removing = Se elimină…
+setup.st.removed = SysWidget a fost eliminat.
+setup.st.done = Gata! SysWidget este instalat.
+setup.st.failed = Ceva nu a funcționat.
+setup.shortcut = SysWidget - widget de monitorizare a sistemului

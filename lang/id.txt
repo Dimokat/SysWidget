@@ -1,0 +1,130 @@
+# SysWidget - id. Translated from lang/en.txt (see that file for the format).
+# Fixes and improvements are welcome: edit this file and open a pull request.
+# ---- Widget: short section labels (like the column names in Task Manager)
+label.cpu = CPU
+label.gpu = GPU
+label.igpu = iGPU
+label.fps = FPS
+label.ram = RAM
+label.net = JARINGAN
+label.disk = DISK
+
+# ---- Widget: values
+gpu.vram = VRAM {0} / {1} GB
+gpu.memory = Memori {0} / {1} GB
+gpu.idle = diam (pakai baterai)
+gpu.idle.short = diam
+fps.noapp = tidak ada aplikasi aktif
+fps.admin = perlu admin
+fps.error = galat
+ram.value = {0} / {1} GB
+ram.short = {0} GB
+disk.free = {0} GB kosong dari {1}
+disk.short = {0} GB
+disk.read = B {0}
+disk.write = T {0}
+unit.bps = {0} B/d
+unit.kbps = {0} KB/d
+unit.mbps = {0} MB/d
+unit.watts = {0} W
+
+# ---- Section names in menus and settings
+section.cpu = CPU
+section.fps = FPS
+section.ram = RAM
+section.net = Jaringan
+section.disk = Disk
+
+# ---- Right-click menu
+menu.update = Pembaruan tersedia: {0}…
+menu.hide = Sembunyikan widget
+menu.unhide = Tampilkan widget
+menu.mini = Mode mini
+menu.ontop = Selalu di atas
+menu.lock = Kunci posisi
+menu.clickthrough = Tembuskan klik (tahan Ctrl untuk berinteraksi)
+menu.startup = Mulai bersama Windows
+menu.position = Posisi
+menu.show = Tampilkan
+menu.size = Ukuran
+menu.opacity = Opasitas
+menu.background = Latar belakang
+menu.bg.dark = Gelap
+menu.bg.accent = Warna aksen Windows
+menu.settings = Pengaturan…
+menu.more = Opsi lainnya…
+menu.updates = Periksa pembaruan
+menu.taskmgr = Pengelola Tugas
+menu.exit = Keluar
+menu.about = SysWidget v{0}  ·  oleh {1}
+menu.donate = Dukung pengembang ♥
+pos.tl = Kiri atas
+pos.tc = Tengah atas
+pos.tr = Kanan atas
+pos.ml = Kiri tengah
+pos.mc = Tengah
+pos.mr = Kanan tengah
+pos.bl = Kiri bawah
+pos.bc = Tengah bawah
+pos.br = Kanan bawah
+
+# ---- Tray icon and notifications
+tray.update = Pembaruan {0} tersedia
+notify.update.title = SysWidget {0} sudah tersedia
+notify.update.text = Klik untuk membuka halaman unduhan.
+
+# ---- Settings window
+settings.title = Pengaturan SysWidget
+settings.tab.sections = Bagian
+settings.tab.mini = Mode mini
+settings.tab.appearance = Tampilan
+settings.sections.note = Aktifkan atau nonaktifkan bagian, ubah urutan, warna, dan apa yang ditampilkan tiap bagian.
+settings.mini.note = Pilih apa yang ditampilkan mode mini satu baris. Urutan, warna, dan detailnya (suhu, unggah) sama dengan tab Bagian.
+settings.layout = Tata letak
+settings.layout.normal = Normal
+settings.layout.compact = Ringkas
+settings.language = Bahasa
+settings.language.auto = Otomatis ({0})
+settings.language.note = Terjemahan diperbarui dari GitHub selama “Periksa pembaruan” aktif.
+settings.reset = Atur ulang bagian, detail, dan warna
+detail.temp = Suhu
+detail.graph = Grafik
+detail.mem = Memori
+detail.power = Daya
+detail.app = Nama aplikasi
+detail.bar = Bilah penggunaan
+detail.up = Unggah
+detail.rw = Baca / tulis
+detail.free = Ruang kosong
+color.down = Unduh
+color.up = Unggah
+
+# ---- Installer
+setup.title = Penyiapan SysWidget
+setup.title.uninstall = Copot SysWidget
+setup.version = v{0}   ·   oleh {1}
+setup.desc = Widget desktop kecil yang menampilkan CPU, GPU, FPS, RAM, jaringan, dan disk.\nDipasang di {0}
+setup.desc.uninstall = Ini akan menghapus SysWidget, pintasannya, dan tugas startupnya dari PC ini.
+setup.opt.settings = Hapus juga pengaturan saya
+setup.opt.startup = Mulai bersama Windows (juga diperlukan untuk penghitung FPS)
+setup.opt.startmenu = Pintasan di menu Start
+setup.opt.desktop = Pintasan di desktop
+setup.opt.launch = Jalankan SysWidget setelah selesai
+setup.btn.install = Pasang
+setup.btn.update = Perbarui
+setup.btn.uninstall = Copot
+setup.btn.cancel = Batal
+setup.btn.close = Tutup
+setup.extract = Ekstrak seluruh file zip terlebih dahulu, lalu jalankan Setup.exe dari folder itu.
+setup.err.nosource = SysWidget.exe tidak ditemukan di samping Setup.exe.\n\nEkstrak seluruh file zip ke sebuah folder terlebih dahulu, lalu jalankan Setup.exe dari sana.
+setup.err.task = Tidak dapat membuat tugas startup (kode keluar schtasks: {0}).
+setup.st.stopping = Menghentikan SysWidget…
+setup.st.copying = Menyalin file…
+setup.st.startup = Menyiapkan startup…
+setup.st.shortcuts = Membuat pintasan…
+setup.st.registering = Mendaftarkan ke aplikasi terpasang…
+setup.st.removing = Menghapus…
+setup.st.removed = SysWidget sudah dihapus.
+setup.st.done = Selesai! SysWidget sudah terpasang.
+setup.st.failed = Terjadi kesalahan.
+setup.shortcut = SysWidget - widget pemantau sistem

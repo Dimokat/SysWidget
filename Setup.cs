@@ -33,6 +33,7 @@ static class Setup
     {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
+        Lang.Load(""); // the Windows display language
         bool uninstall = args.Length > 0 && args[0].Equals("/uninstall", StringComparison.OrdinalIgnoreCase);
         Application.Run(new SetupForm(uninstall));
     }
@@ -62,23 +63,23 @@ static class Setup
 
     public static void Install(bool startup, bool startMenu, bool desktop, Action<string> status)
     {
-        if (!HasSource) throw new Exception("SysWidget.exe was not found next to Setup.exe.\n\nExtract the whole zip to a folder first, then run Setup.exe from there.");
-        status("Stopping SysWidget..."); StopWidget();
+        if (!HasSource) throw new Exception(Lang.T("setup.err.nosource"));
+        status(Lang.T("setup.st.stopping")); StopWidget();
 
-        status("Copying files...");
+        status(Lang.T("setup.st.copying"));
         Directory.CreateDirectory(Dir);
         if (!Source.Equals(Exe, StringComparison.OrdinalIgnoreCase)) File.Copy(Source, Exe, true);
         string self = Application.ExecutablePath;
         if (!self.Equals(Uninst, StringComparison.OrdinalIgnoreCase)) File.Copy(self, Uninst, true);
 
-        status("Setting up startup...");
+        status(Lang.T("setup.st.startup"));
         if (startup) CreateTask(); else Run("schtasks.exe", "/Delete /TN \"SysWidget\" /F");
 
-        status("Creating shortcuts...");
+        status(Lang.T("setup.st.shortcuts"));
         if (startMenu) Shortcut(StartLnk); else TryDelete(StartLnk);
         if (desktop) Shortcut(DeskLnk); else TryDelete(DeskLnk);
 
-        status("Registering in Apps & Features...");
+        status(Lang.T("setup.st.registering"));
         using (var k = Registry.LocalMachine.CreateSubKey(UninstKey))
         {
             k.SetValue("DisplayName", "SysWidget");
@@ -116,7 +117,7 @@ static class Setup
         File.WriteAllText(tmp, xml, Encoding.Unicode);
         int rc = Run("schtasks.exe", "/Create /TN \"SysWidget\" /XML \"" + tmp + "\" /F");
         TryDelete(tmp);
-        if (rc != 0) throw new Exception("Could not create the startup task (schtasks exit code " + rc + ").");
+        if (rc != 0) throw new Exception(Lang.F("setup.err.task", rc));
     }
 
     static void Shortcut(string path)
@@ -127,7 +128,7 @@ static class Setup
         var lt = lnk.GetType();
         lt.InvokeMember("TargetPath", BindingFlags.SetProperty, null, lnk, new object[] { Exe });
         lt.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, lnk, new object[] { Dir });
-        lt.InvokeMember("Description", BindingFlags.SetProperty, null, lnk, new object[] { "SysWidget - system monitor widget" });
+        lt.InvokeMember("Description", BindingFlags.SetProperty, null, lnk, new object[] { Lang.T("setup.shortcut") });
         lt.InvokeMember("IconLocation", BindingFlags.SetProperty, null, lnk, new object[] { Exe + ",0" });
         lt.InvokeMember("Save", BindingFlags.InvokeMethod, null, lnk, null);
     }
@@ -158,11 +159,11 @@ sealed class SetupForm : Form
     public SetupForm(bool uninstall)
     {
         uninstallMode = uninstall;
-        Text = uninstall ? "Uninstall SysWidget" : "SysWidget Setup";
+        Text = Lang.T(uninstall ? "setup.title.uninstall" : "setup.title");
         FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(460, uninstall ? 250 : 330);
-        BackColor = Bg; ForeColor = Fg; Font = new Font("Segoe UI", 9.5f);
+        ClientSize = new Size(460, 300);
+        BackColor = Bg; ForeColor = Fg; Font = Lang.MakeFont(9.5f, false);
 
         Image logo = null;
         try
@@ -173,38 +174,41 @@ sealed class SetupForm : Form
         }
         catch { }
         Controls.Add(new PictureBox { Image = logo, Location = new Point(24, 22), Size = new Size(48, 48), SizeMode = PictureBoxSizeMode.Zoom });
-        Controls.Add(new Label { Text = "SysWidget", Font = new Font("Segoe UI Semibold", 16f), Location = new Point(84, 17), AutoSize = true });
-        Controls.Add(new Label { Text = "v" + Setup.Version + "   ·   by " + Setup.Author, ForeColor = Dim, Location = new Point(87, 50), AutoSize = true });
-        string desc = uninstall
-            ? "This removes SysWidget, its shortcuts and its startup task from this PC."
-            : "A tiny desktop widget with CPU, GPU, FPS, RAM, network and disk stats.\r\nInstalls to " + Setup.Dir;
-        Controls.Add(new Label { Text = desc, ForeColor = Dim, Location = new Point(24, 88), Size = new Size(412, 40) });
+        Controls.Add(new Label { Text = "SysWidget", Font = Lang.MakeFont(16f, true), Location = new Point(84, 17), AutoSize = true });
+        Controls.Add(new Label { Text = Lang.F("setup.version", Setup.Version, Setup.Author), ForeColor = Dim, Location = new Point(87, 50), AutoSize = true });
+        string desc = uninstall ? Lang.T("setup.desc.uninstall") : Lang.F("setup.desc", Setup.Dir);
+        int descH = TextRenderer.MeasureText(desc, Font, new Size(412, 0), TextFormatFlags.WordBreak).Height + 4;
+        var lblDesc = new Label { Text = desc, ForeColor = Dim, Location = new Point(24, 88), Size = new Size(412, descH) };
+        Controls.Add(lblDesc);
 
-        int y = 136;
-        if (uninstall) cbSettings = Check("Also remove my settings", false, ref y);
+        int y = lblDesc.Bottom + 12;
+        if (uninstall) cbSettings = Check(Lang.T("setup.opt.settings"), false, ref y);
         else
         {
-            cbStartup = Check("Start with Windows (also needed for the FPS counter)", true, ref y);
-            cbMenu = Check("Start menu shortcut", true, ref y);
-            cbDesk = Check("Desktop shortcut", false, ref y);
-            cbLaunch = Check("Launch SysWidget when done", true, ref y);
+            cbStartup = Check(Lang.T("setup.opt.startup"), true, ref y);
+            cbMenu = Check(Lang.T("setup.opt.startmenu"), true, ref y);
+            cbDesk = Check(Lang.T("setup.opt.desktop"), false, ref y);
+            cbLaunch = Check(Lang.T("setup.opt.launch"), true, ref y);
         }
+        ClientSize = new Size(460, y + 92);
 
         lblStatus = new Label { ForeColor = Accent, Location = new Point(24, ClientSize.Height - 78), Size = new Size(412, 22) };
         Controls.Add(lblStatus);
-        btnCancel = Btn("Cancel", 352, BtnBg); btnCancel.Click += delegate { Close(); };
-        btnMain = Btn(uninstall ? "Uninstall" : Setup.Installed ? "Update" : "Install", 258, BtnMain);
+        // Buttons from the right edge, each as wide as its text needs.
+        int right = 436;
+        btnCancel = Btn(Lang.T("setup.btn.cancel"), ref right, BtnBg); btnCancel.Click += delegate { Close(); };
+        btnMain = Btn(Lang.T(uninstall ? "setup.btn.uninstall" : Setup.Installed ? "setup.btn.update" : "setup.btn.install"), ref right, BtnMain);
         btnMain.Click += delegate { Go(); };
         if (!uninstall && Setup.Installed)
         {
-            btnAlt = Btn("Uninstall", 164, BtnBg);
+            btnAlt = Btn(Lang.T("setup.btn.uninstall"), ref right, BtnBg);
             btnAlt.Click += delegate { using (var f = new SetupForm(true)) f.ShowDialog(this); if (!Setup.Installed) Close(); };
         }
         AcceptButton = btnMain; CancelButton = btnCancel;
         if (!uninstall && !Setup.HasSource)
         {
             lblStatus.ForeColor = Color.FromArgb(0xFF, 0xA7, 0x26);
-            lblStatus.Text = "Extract the whole zip first, then run Setup.exe from that folder.";
+            lblStatus.Text = Lang.T("setup.extract");
             btnMain.Enabled = false;
         }
     }
@@ -215,11 +219,13 @@ sealed class SetupForm : Form
         Controls.Add(c); y += 27; return c;
     }
 
-    Button Btn(string text, int x, Color bg)
+    Button Btn(string text, ref int right, Color bg)
     {
-        var b = new Button { Text = text, Location = new Point(x, ClientSize.Height - 48), Size = new Size(86, 30), FlatStyle = FlatStyle.Flat, BackColor = bg, ForeColor = Fg };
+        int w = Math.Max(86, TextRenderer.MeasureText(text, Font).Width + 28);
+        right -= w;
+        var b = new Button { Text = text, Location = new Point(right, ClientSize.Height - 48), Size = new Size(w, 30), FlatStyle = FlatStyle.Flat, BackColor = bg, ForeColor = Fg };
         b.FlatAppearance.BorderColor = Color.FromArgb(70, 72, 80);
-        Controls.Add(b); return b;
+        Controls.Add(b); right -= 8; return b;
     }
 
     void Status(string s) { lblStatus.Text = s; lblStatus.Refresh(); }
@@ -232,21 +238,21 @@ sealed class SetupForm : Form
         {
             if (uninstallMode)
             {
-                Status("Removing...");
+                Status(Lang.T("setup.st.removing"));
                 Setup.Uninstall(cbSettings.Checked);
-                Status("SysWidget was removed.");
+                Status(Lang.T("setup.st.removed"));
             }
             else
             {
                 Setup.Install(cbStartup.Checked, cbMenu.Checked, cbDesk.Checked, Status);
                 if (cbLaunch.Checked) Setup.Launch(cbStartup.Checked);
-                Status("Done! SysWidget is installed.");
+                Status(Lang.T("setup.st.done"));
             }
-            btnCancel.Text = "Close";
+            btnCancel.Text = Lang.T("setup.btn.close");
         }
         catch (Exception ex)
         {
-            Status("Something went wrong.");
+            Status(Lang.T("setup.st.failed"));
             MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
             btnMain.Enabled = true;
         }

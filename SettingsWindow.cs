@@ -15,8 +15,8 @@ sealed class SettingsWindow : Form
     int tab;                                 // 0 sections, 1 mini mode, 2 appearance
     string colorKey;                         // colour being picked (strip open under its section)
     readonly List<Hit> hits = new List<Hit>();
-    readonly Font fText, fBold, fSmall, fHead;
-    static readonly string[] Tabs = { "Sections", "Mini mode", "Appearance" };
+    Font fText, fBold, fSmall, fHead;
+    static readonly string[] Tabs = { "settings.tab.sections", "settings.tab.mini", "settings.tab.appearance" };
     static readonly Color[] Swatches =
     {
         Color.FromArgb(0x4F, 0xC3, 0xF7), Color.FromArgb(0x64, 0xB5, 0xF6), Color.FromArgb(0x79, 0x86, 0xCB), Color.FromArgb(0xBA, 0x68, 0xC8),
@@ -32,18 +32,35 @@ sealed class SettingsWindow : Form
     public SettingsWindow(WidgetForm widget, float dpi)
     {
         w = widget; d = dpi;
-        Text = "SysWidget settings";
+        Text = Lang.T("settings.title");
         FormBorderStyle = FormBorderStyle.FixedSingle; MaximizeBox = false; MinimizeBox = true;
         ShowInTaskbar = true; StartPosition = FormStartPosition.Manual; KeyPreview = true;
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
-        fText = new Font("Segoe UI", 9.75f); fBold = new Font("Segoe UI Semibold", 9.75f);
-        fSmall = new Font("Segoe UI", 8.75f); fHead = new Font("Segoe UI Semibold", 8.75f);
-        Font = fText;
+        MakeFonts();
         ClientSize = new Size(S(452), S(420));
         KeyDown += (o, e) => { if (e.KeyCode == Keys.Escape) Close(); };
     }
 
     int S(float v) { return (int)Math.Round(v * d); }
+
+    void MakeFonts()
+    {
+        fText = Lang.MakeFont(9.75f, false); fBold = Lang.MakeFont(9.75f, true);
+        fSmall = Lang.MakeFont(8.75f, false); fHead = Lang.MakeFont(8.75f, true);
+        Font = fText;
+    }
+
+    // The widget switched language: new fonts (CJK need their own), new title, new layout.
+    public void LanguageChanged()
+    {
+        var old = new[] { fText, fBold, fSmall, fHead };
+        MakeFonts();
+        foreach (var f in old) f.Dispose();
+        Text = Lang.T("settings.title");
+        Reflow();
+    }
+
+    static string Upper(string t) { return t.ToUpper(System.Globalization.CultureInfo.CurrentUICulture); }
 
     static Color Bg { get { return MenuLook.Bg; } }
     static Color Line { get { return MenuLook.Border; } }
@@ -134,7 +151,7 @@ sealed class SettingsWindow : Form
             {
                 if (tab == i) using (var p = Round(r, S(6))) using (var b = new SolidBrush(Color.FromArgb(46, Acc))) g.FillPath(b, p);
                 else if (Hover(r)) using (var p = Round(r, S(6))) using (var b = new SolidBrush(Color.FromArgb(10, 255, 255, 255))) g.FillPath(b, p);
-                Center(g, Tabs[i], tab == i ? fBold : fText, tab == i ? Ink : Dim, r);
+                Center(g, Lang.T(Tabs[i]), tab == i ? fBold : fText, tab == i ? Ink : Dim, r);
             }
             Add(r, () => { tab = t; colorKey = null; }, draw);
         }
@@ -148,7 +165,7 @@ sealed class SettingsWindow : Form
 
     float SectionsTab(Graphics g, bool draw, float x, float width, float y)
     {
-        y = Note(g, draw, x, width, y, "Turn sections on or off, reorder them, pick their colors and what each one shows.");
+        y = Note(g, draw, x, width, y, Lang.T("settings.sections.note"));
         var ids = new List<string>(w.Sections());
         for (int i = 0; i < ids.Count; i++)
         {
@@ -212,7 +229,7 @@ sealed class SettingsWindow : Form
 
     float MiniTab(Graphics g, bool draw, float x, float width, float y)
     {
-        y = Note(g, draw, x, width, y, "Choose what the one-line mini mode shows. It uses the same order, colors and details (temperature, upload) as the Sections tab.");
+        y = Note(g, draw, x, width, y, Lang.T("settings.mini.note"));
         foreach (var id in w.Sections())
         {
             string sid = id; bool on = w.IsShown(id, true);
@@ -234,15 +251,35 @@ sealed class SettingsWindow : Form
 
     float AppearanceTab(Graphics g, bool draw, float x, float width, float y)
     {
-        y = Choice(g, draw, x, width, y, "Layout", new[] { "Normal", "Compact" }, w.Compact ? 1 : 0, i => w.Compact = i == 1);
-        y = Choice(g, draw, x, width, y, "Background", new[] { "Dark", "Windows accent color" }, w.AccentBackground ? 1 : 0, i => w.AccentBackground = i == 1);
+        y = Choice(g, draw, x, width, y, Lang.T("settings.layout"), new[] { Lang.T("settings.layout.normal"), Lang.T("settings.layout.compact") }, w.Compact ? 1 : 0, i => w.Compact = i == 1);
+        y = Choice(g, draw, x, width, y, Lang.T("menu.background"), new[] { Lang.T("menu.bg.dark"), Lang.T("menu.bg.accent") }, w.AccentBackground ? 1 : 0, i => w.AccentBackground = i == 1);
         int[] sizes = { 75, 90, 100, 115, 130, 150, 175 };
-        y = Choice(g, draw, x, width, y, "Size", Array.ConvertAll(sizes, v => v + "%"), Array.IndexOf(sizes, w.SizePercent), i => w.SizePercent = sizes[i]);
+        y = Choice(g, draw, x, width, y, Lang.T("menu.size"), Array.ConvertAll(sizes, v => v + "%"), Array.IndexOf(sizes, w.SizePercent), i => w.SizePercent = sizes[i]);
         int[] ops = { 100, 90, 80, 70, 60, 50, 40, 30 };
-        y = Choice(g, draw, x, width, y, "Opacity", Array.ConvertAll(ops, v => v + "%"), Array.IndexOf(ops, w.OpacityPercent), i => w.OpacityPercent = ops[i]);
+        y = Choice(g, draw, x, width, y, Lang.T("menu.opacity"), Array.ConvertAll(ops, v => v + "%"), Array.IndexOf(ops, w.OpacityPercent), i => w.OpacityPercent = ops[i]);
+
+        // language: a field that opens the list of available languages
+        if (draw) Txt(g, Upper(Lang.T("settings.language")), fHead, Dim, x, y);
+        y += S(20);
+        string cur = w.LanguageChoice == "" ? Lang.F("settings.language.auto", Lang.NativeName(Lang.AutoCode())) : Lang.NativeName(w.LanguageChoice);
+        var lr = new RectangleF(x, y, width, S(32));
+        if (draw)
+        {
+            using (var p = Round(lr, S(8)))
+            {
+                using (var b = new SolidBrush(Hover(lr) ? Color.FromArgb(22, 255, 255, 255) : Raised)) g.FillPath(b, p);
+                using (var pen = new Pen(Line)) g.DrawPath(pen, p);
+            }
+            TextRenderer.DrawText(g, cur, fText, Rectangle.Round(new RectangleF(lr.X + S(12), lr.Y, lr.Width - S(48), lr.Height)), Ink,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+            Arrow(g, new RectangleF(lr.Right - S(32), lr.Y + S(4), S(24), S(24)), false, true);
+        }
+        Add(lr, () => w.ShowLanguageMenu(this, new Point((int)lr.Left, (int)lr.Bottom + S(4))), draw);
+        y += S(32) + S(8);
+        y = Note(g, draw, x, width, y, Lang.T("settings.language.note"));
 
         y += S(4);
-        string label = "Reset sections, details and colors";
+        string label = Lang.T("settings.reset");
         var r = new RectangleF(x, y, g.MeasureString(label, fText).Width + S(28), S(30));
         if (draw)
         {
@@ -267,7 +304,7 @@ sealed class SettingsWindow : Form
 
     float Choice(Graphics g, bool draw, float x, float width, float y, string label, string[] options, int sel, Action<int> pick)
     {
-        if (draw) Txt(g, label.ToUpperInvariant(), fHead, Dim, x, y);
+        if (draw) Txt(g, Upper(label), fHead, Dim, x, y);
         y += S(20);
         var bar = new RectangleF(x, y, width, S(32));
         if (draw) using (var p = Round(bar, S(8))) using (var b = new SolidBrush(Raised)) g.FillPath(b, p);

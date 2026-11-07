@@ -1,0 +1,130 @@
+# SysWidget - es. Translated from lang/en.txt (see that file for the format).
+# Fixes and improvements are welcome: edit this file and open a pull request.
+# ---- Widget: short section labels (like the column names in Task Manager)
+label.cpu = CPU
+label.gpu = GPU
+label.igpu = iGPU
+label.fps = FPS
+label.ram = RAM
+label.net = RED
+label.disk = DISCO
+
+# ---- Widget: values
+gpu.vram = VRAM {0} / {1} GB
+gpu.memory = Memoria {0} / {1} GB
+gpu.idle = inactiva (con batería)
+gpu.idle.short = inactiva
+fps.noapp = ninguna app activa
+fps.admin = requiere administrador
+fps.error = error
+ram.value = {0} / {1} GB
+ram.short = {0} GB
+disk.free = {0} GB libres de {1}
+disk.short = {0} GB
+disk.read = L {0}
+disk.write = E {0}
+unit.bps = {0} B/s
+unit.kbps = {0} KB/s
+unit.mbps = {0} MB/s
+unit.watts = {0} W
+
+# ---- Section names in menus and settings
+section.cpu = CPU
+section.fps = FPS
+section.ram = RAM
+section.net = Red
+section.disk = Discos
+
+# ---- Right-click menu
+menu.update = Actualización disponible: {0}…
+menu.hide = Ocultar widget
+menu.unhide = Mostrar widget
+menu.mini = Modo mini
+menu.ontop = Siempre visible
+menu.lock = Bloquear posición
+menu.clickthrough = Dejar pasar los clics (mantén Ctrl para interactuar)
+menu.startup = Iniciar con Windows
+menu.position = Posición
+menu.show = Mostrar
+menu.size = Tamaño
+menu.opacity = Opacidad
+menu.background = Fondo
+menu.bg.dark = Oscuro
+menu.bg.accent = Color de énfasis de Windows
+menu.settings = Configuración…
+menu.more = Más opciones…
+menu.updates = Buscar actualizaciones
+menu.taskmgr = Administrador de tareas
+menu.exit = Salir
+menu.about = SysWidget v{0}  ·  por {1}
+menu.donate = Apoyar al desarrollador ♥
+pos.tl = Arriba a la izquierda
+pos.tc = Arriba al centro
+pos.tr = Arriba a la derecha
+pos.ml = En medio a la izquierda
+pos.mc = Centro
+pos.mr = En medio a la derecha
+pos.bl = Abajo a la izquierda
+pos.bc = Abajo al centro
+pos.br = Abajo a la derecha
+
+# ---- Tray icon and notifications
+tray.update = Actualización {0} disponible
+notify.update.title = SysWidget {0} está disponible
+notify.update.text = Haz clic para abrir la página de descarga.
+
+# ---- Settings window
+settings.title = Configuración de SysWidget
+settings.tab.sections = Secciones
+settings.tab.mini = Modo mini
+settings.tab.appearance = Apariencia
+settings.sections.note = Activa o desactiva secciones, cambia su orden, sus colores y lo que muestra cada una.
+settings.mini.note = Elige lo que muestra el modo mini de una línea. Usa el mismo orden, colores y detalles (temperatura, subida) que la pestaña Secciones.
+settings.layout = Diseño
+settings.layout.normal = Normal
+settings.layout.compact = Compacto
+settings.language = Idioma
+settings.language.auto = Automático ({0})
+settings.language.note = Las traducciones se actualizan desde GitHub mientras «Buscar actualizaciones» esté activado.
+settings.reset = Restablecer secciones, detalles y colores
+detail.temp = Temperatura
+detail.graph = Gráfico
+detail.mem = Memoria
+detail.power = Potencia
+detail.app = Nombre de la app
+detail.bar = Barra de uso
+detail.up = Subida
+detail.rw = Lectura / escritura
+detail.free = Espacio libre
+color.down = Bajada
+color.up = Subida
+
+# ---- Installer
+setup.title = Instalación de SysWidget
+setup.title.uninstall = Desinstalar SysWidget
+setup.version = v{0}   ·   por {1}
+setup.desc = Un pequeño widget de escritorio con CPU, GPU, FPS, RAM, red y discos.\nSe instala en {0}
+setup.desc.uninstall = Esto quita SysWidget, sus accesos directos y su tarea de inicio de este equipo.
+setup.opt.settings = Quitar también mi configuración
+setup.opt.startup = Iniciar con Windows (también necesario para el contador de FPS)
+setup.opt.startmenu = Acceso directo en el menú Inicio
+setup.opt.desktop = Acceso directo en el escritorio
+setup.opt.launch = Abrir SysWidget al terminar
+setup.btn.install = Instalar
+setup.btn.update = Actualizar
+setup.btn.uninstall = Desinstalar
+setup.btn.cancel = Cancelar
+setup.btn.close = Cerrar
+setup.extract = Primero extrae todo el zip y luego ejecuta Setup.exe desde esa carpeta.
+setup.err.nosource = No se encontró SysWidget.exe junto a Setup.exe.\n\nPrimero extrae todo el zip en una carpeta y luego ejecuta Setup.exe desde allí.
+setup.err.task = No se pudo crear la tarea de inicio (código de salida de schtasks: {0}).
+setup.st.stopping = Deteniendo SysWidget…
+setup.st.copying = Copiando archivos…
+setup.st.startup = Configurando el inicio…
+setup.st.shortcuts = Creando accesos directos…
+setup.st.registering = Registrando en las aplicaciones instaladas…
+setup.st.removing = Quitando…
+setup.st.removed = SysWidget se ha quitado.
+setup.st.done = ¡Listo! SysWidget está instalado.
+setup.st.failed = Algo salió mal.
+setup.shortcut = SysWidget - widget de monitoreo del sistema

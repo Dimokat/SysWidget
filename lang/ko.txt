@@ -1,0 +1,130 @@
+# SysWidget - ko. Translated from lang/en.txt (see that file for the format).
+# Fixes and improvements are welcome: edit this file and open a pull request.
+# ---- Widget: short section labels (like the column names in Task Manager)
+label.cpu = CPU
+label.gpu = GPU
+label.igpu = iGPU
+label.fps = FPS
+label.ram = 메모리
+label.net = 네트워크
+label.disk = 디스크
+
+# ---- Widget: values
+gpu.vram = VRAM {0} / {1} GB
+gpu.memory = 메모리 {0} / {1} GB
+gpu.idle = 유휴 (배터리 사용 중)
+gpu.idle.short = 유휴
+fps.noapp = 활성 앱 없음
+fps.admin = 관리자 권한 필요
+fps.error = 오류
+ram.value = {0} / {1} GB
+ram.short = {0} GB
+disk.free = {1} 중 {0} GB 사용 가능
+disk.short = {0} GB
+disk.read = 읽기 {0}
+disk.write = 쓰기 {0}
+unit.bps = {0} B/s
+unit.kbps = {0} KB/s
+unit.mbps = {0} MB/s
+unit.watts = {0} W
+
+# ---- Section names in menus and settings
+section.cpu = CPU
+section.fps = FPS
+section.ram = 메모리
+section.net = 네트워크
+section.disk = 디스크
+
+# ---- Right-click menu
+menu.update = 업데이트 가능: {0}…
+menu.hide = 위젯 숨기기
+menu.unhide = 위젯 표시
+menu.mini = 미니 모드
+menu.ontop = 항상 위
+menu.lock = 위치 잠금
+menu.clickthrough = 클릭 통과 (조작하려면 Ctrl 누르기)
+menu.startup = Windows와 함께 시작
+menu.position = 위치
+menu.show = 표시
+menu.size = 크기
+menu.opacity = 불투명도
+menu.background = 배경
+menu.bg.dark = 어둡게
+menu.bg.accent = Windows 강조 색
+menu.settings = 설정…
+menu.more = 추가 옵션…
+menu.updates = 업데이트 확인
+menu.taskmgr = 작업 관리자
+menu.exit = 종료
+menu.about = SysWidget v{0}  ·  제작: {1}
+menu.donate = 개발자 후원하기 ♥
+pos.tl = 왼쪽 위
+pos.tc = 위쪽 가운데
+pos.tr = 오른쪽 위
+pos.ml = 왼쪽 가운데
+pos.mc = 가운데
+pos.mr = 오른쪽 가운데
+pos.bl = 왼쪽 아래
+pos.bc = 아래쪽 가운데
+pos.br = 오른쪽 아래
+
+# ---- Tray icon and notifications
+tray.update = 업데이트 {0} 사용 가능
+notify.update.title = SysWidget {0}을(를) 사용할 수 있습니다
+notify.update.text = 클릭하면 다운로드 페이지가 열립니다.
+
+# ---- Settings window
+settings.title = SysWidget 설정
+settings.tab.sections = 섹션
+settings.tab.mini = 미니 모드
+settings.tab.appearance = 모양
+settings.sections.note = 섹션을 켜거나 끄고, 순서와 색, 각 섹션에 표시할 내용을 바꿀 수 있습니다.
+settings.mini.note = 한 줄 미니 모드에 표시할 내용을 선택하세요. 순서, 색, 세부 정보(온도, 업로드)는 섹션 탭과 같습니다.
+settings.layout = 레이아웃
+settings.layout.normal = 보통
+settings.layout.compact = 간결하게
+settings.language = 언어
+settings.language.auto = 자동 ({0})
+settings.language.note = '업데이트 확인'이 켜져 있으면 번역이 GitHub에서 업데이트됩니다.
+settings.reset = 섹션, 세부 정보, 색 초기화
+detail.temp = 온도
+detail.graph = 그래프
+detail.mem = 메모리
+detail.power = 전력
+detail.app = 앱 이름
+detail.bar = 사용량 막대
+detail.up = 업로드
+detail.rw = 읽기 / 쓰기
+detail.free = 여유 공간
+color.down = 다운로드
+color.up = 업로드
+
+# ---- Installer
+setup.title = SysWidget 설치
+setup.title.uninstall = SysWidget 제거
+setup.version = v{0}   ·   제작: {1}
+setup.desc = CPU, GPU, FPS, 메모리, 네트워크, 디스크 정보를 보여 주는 작은 바탕 화면 위젯입니다.\n설치 위치: {0}
+setup.desc.uninstall = 이 PC에서 SysWidget과 바로 가기, 시작 작업을 제거합니다.
+setup.opt.settings = 내 설정도 제거
+setup.opt.startup = Windows와 함께 시작 (FPS 카운터에도 필요)
+setup.opt.startmenu = 시작 메뉴 바로 가기
+setup.opt.desktop = 바탕 화면 바로 가기
+setup.opt.launch = 완료 후 SysWidget 실행
+setup.btn.install = 설치
+setup.btn.update = 업데이트
+setup.btn.uninstall = 제거
+setup.btn.cancel = 취소
+setup.btn.close = 닫기
+setup.extract = 먼저 zip 파일 전체를 압축 해제한 뒤 그 폴더에서 Setup.exe를 실행하세요.
+setup.err.nosource = Setup.exe 옆에서 SysWidget.exe를 찾을 수 없습니다.\n\n먼저 zip 파일 전체를 폴더에 압축 해제한 뒤 그곳에서 Setup.exe를 실행하세요.
+setup.err.task = 시작 작업을 만들 수 없습니다 (schtasks 종료 코드: {0}).
+setup.st.stopping = SysWidget 중지 중…
+setup.st.copying = 파일 복사 중…
+setup.st.startup = 시작 설정 중…
+setup.st.shortcuts = 바로 가기 만드는 중…
+setup.st.registering = 설치된 앱에 등록하는 중…
+setup.st.removing = 제거하는 중…
+setup.st.removed = SysWidget이 제거되었습니다.
+setup.st.done = 완료! SysWidget이 설치되었습니다.
+setup.st.failed = 문제가 발생했습니다.
+setup.shortcut = SysWidget - 시스템 모니터 위젯

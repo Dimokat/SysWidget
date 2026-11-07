@@ -1,0 +1,130 @@
+# SysWidget - cs. Translated from lang/en.txt (see that file for the format).
+# Fixes and improvements are welcome: edit this file and open a pull request.
+# ---- Widget: short section labels (like the column names in Task Manager)
+label.cpu = CPU
+label.gpu = GPU
+label.igpu = iGPU
+label.fps = FPS
+label.ram = RAM
+label.net = SÍŤ
+label.disk = DISK
+
+# ---- Widget: values
+gpu.vram = VRAM {0} / {1} GB
+gpu.memory = Paměť {0} / {1} GB
+gpu.idle = nečinná (na baterii)
+gpu.idle.short = nečinná
+fps.noapp = žádná aktivní aplikace
+fps.admin = vyžaduje správce
+fps.error = chyba
+ram.value = {0} / {1} GB
+ram.short = {0} GB
+disk.free = volno {0} GB z {1}
+disk.short = {0} GB
+disk.read = Č {0}
+disk.write = Z {0}
+unit.bps = {0} B/s
+unit.kbps = {0} kB/s
+unit.mbps = {0} MB/s
+unit.watts = {0} W
+
+# ---- Section names in menus and settings
+section.cpu = CPU
+section.fps = FPS
+section.ram = RAM
+section.net = Síť
+section.disk = Disky
+
+# ---- Right-click menu
+menu.update = K dispozici je aktualizace: {0}…
+menu.hide = Skrýt widget
+menu.unhide = Zobrazit widget
+menu.mini = Mini režim
+menu.ontop = Vždy navrchu
+menu.lock = Zamknout pozici
+menu.clickthrough = Propouštět kliknutí (pro ovládání podržte Ctrl)
+menu.startup = Spouštět se systémem Windows
+menu.position = Pozice
+menu.show = Zobrazit
+menu.size = Velikost
+menu.opacity = Neprůhlednost
+menu.background = Pozadí
+menu.bg.dark = Tmavé
+menu.bg.accent = Barva zvýraznění Windows
+menu.settings = Nastavení…
+menu.more = Další možnosti…
+menu.updates = Kontrolovat aktualizace
+menu.taskmgr = Správce úloh
+menu.exit = Ukončit
+menu.about = SysWidget v{0}  ·  autor: {1}
+menu.donate = Podpořit vývojáře ♥
+pos.tl = Vlevo nahoře
+pos.tc = Nahoře uprostřed
+pos.tr = Vpravo nahoře
+pos.ml = Vlevo uprostřed
+pos.mc = Uprostřed
+pos.mr = Vpravo uprostřed
+pos.bl = Vlevo dole
+pos.bc = Dole uprostřed
+pos.br = Vpravo dole
+
+# ---- Tray icon and notifications
+tray.update = K dispozici je aktualizace {0}
+notify.update.title = K dispozici je SysWidget {0}
+notify.update.text = Kliknutím otevřete stránku ke stažení.
+
+# ---- Settings window
+settings.title = Nastavení SysWidget
+settings.tab.sections = Oddíly
+settings.tab.mini = Mini režim
+settings.tab.appearance = Vzhled
+settings.sections.note = Zapínejte a vypínejte oddíly, měňte jejich pořadí, barvy a to, co každý z nich zobrazuje.
+settings.mini.note = Vyberte, co zobrazuje jednořádkový mini režim. Pořadí, barvy a podrobnosti (teplota, odesílání) jsou stejné jako na kartě Oddíly.
+settings.layout = Rozložení
+settings.layout.normal = Normální
+settings.layout.compact = Kompaktní
+settings.language = Jazyk
+settings.language.auto = Automaticky ({0})
+settings.language.note = Překlady se aktualizují z GitHubu, dokud je zapnuto „Kontrolovat aktualizace“.
+settings.reset = Obnovit oddíly, podrobnosti a barvy
+detail.temp = Teplota
+detail.graph = Graf
+detail.mem = Paměť
+detail.power = Příkon
+detail.app = Název aplikace
+detail.bar = Pruh využití
+detail.up = Odesílání
+detail.rw = Čtení / zápis
+detail.free = Volné místo
+color.down = Stahování
+color.up = Odesílání
+
+# ---- Installer
+setup.title = Instalace SysWidget
+setup.title.uninstall = Odinstalovat SysWidget
+setup.version = v{0}   ·   autor: {1}
+setup.desc = Malý widget na plochu s údaji o CPU, GPU, FPS, RAM, síti a discích.\nNainstaluje se do {0}
+setup.desc.uninstall = Tímto z počítače odeberete SysWidget, jeho zástupce a úlohu automatického spuštění.
+setup.opt.settings = Odebrat také moje nastavení
+setup.opt.startup = Spouštět se systémem Windows (potřeba i pro počítadlo FPS)
+setup.opt.startmenu = Zástupce v nabídce Start
+setup.opt.desktop = Zástupce na ploše
+setup.opt.launch = Po dokončení spustit SysWidget
+setup.btn.install = Nainstalovat
+setup.btn.update = Aktualizovat
+setup.btn.uninstall = Odinstalovat
+setup.btn.cancel = Zrušit
+setup.btn.close = Zavřít
+setup.extract = Nejdřív rozbalte celý archiv a pak spusťte Setup.exe z této složky.
+setup.err.nosource = Vedle Setup.exe nebyl nalezen soubor SysWidget.exe.\n\nNejdřív rozbalte celý archiv do složky a pak odtamtud spusťte Setup.exe.
+setup.err.task = Nepodařilo se vytvořit úlohu automatického spuštění (návratový kód schtasks: {0}).
+setup.st.stopping = Ukončování SysWidget…
+setup.st.copying = Kopírování souborů…
+setup.st.startup = Nastavování automatického spuštění…
+setup.st.shortcuts = Vytváření zástupců…
+setup.st.registering = Registrace do seznamu nainstalovaných aplikací…
+setup.st.removing = Odebírání…
+setup.st.removed = SysWidget byl odebrán.
+setup.st.done = Hotovo! SysWidget je nainstalován.
+setup.st.failed = Něco se pokazilo.
+setup.shortcut = SysWidget - widget pro sledování systému

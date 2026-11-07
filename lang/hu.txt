@@ -1,0 +1,130 @@
+# SysWidget - hu. Translated from lang/en.txt (see that file for the format).
+# Fixes and improvements are welcome: edit this file and open a pull request.
+# ---- Widget: short section labels (like the column names in Task Manager)
+label.cpu = CPU
+label.gpu = GPU
+label.igpu = iGPU
+label.fps = FPS
+label.ram = RAM
+label.net = HÁLÓZAT
+label.disk = LEMEZ
+
+# ---- Widget: values
+gpu.vram = VRAM {0} / {1} GB
+gpu.memory = Memória {0} / {1} GB
+gpu.idle = tétlen (akkumulátorról)
+gpu.idle.short = tétlen
+fps.noapp = nincs aktív alkalmazás
+fps.admin = rendszergazda kell
+fps.error = hiba
+ram.value = {0} / {1} GB
+ram.short = {0} GB
+disk.free = {0} GB szabad / {1}
+disk.short = {0} GB
+disk.read = O {0}
+disk.write = Í {0}
+unit.bps = {0} B/s
+unit.kbps = {0} KB/s
+unit.mbps = {0} MB/s
+unit.watts = {0} W
+
+# ---- Section names in menus and settings
+section.cpu = CPU
+section.fps = FPS
+section.ram = RAM
+section.net = Hálózat
+section.disk = Lemezek
+
+# ---- Right-click menu
+menu.update = Frissítés érhető el: {0}…
+menu.hide = Widget elrejtése
+menu.unhide = Widget megjelenítése
+menu.mini = Mini mód
+menu.ontop = Mindig felül
+menu.lock = Pozíció zárolása
+menu.clickthrough = Kattintások átengedése (a használathoz tartsa lenyomva a Ctrl-t)
+menu.startup = Indítás a Windows-zal
+menu.position = Pozíció
+menu.show = Megjelenítés
+menu.size = Méret
+menu.opacity = Átlátszatlanság
+menu.background = Háttér
+menu.bg.dark = Sötét
+menu.bg.accent = Windows kiemelőszín
+menu.settings = Beállítások…
+menu.more = További beállítások…
+menu.updates = Frissítések keresése
+menu.taskmgr = Feladatkezelő
+menu.exit = Kilépés
+menu.about = SysWidget v{0}  ·  készítette: {1}
+menu.donate = A fejlesztő támogatása ♥
+pos.tl = Bal felső
+pos.tc = Felül középen
+pos.tr = Jobb felső
+pos.ml = Bal középen
+pos.mc = Középen
+pos.mr = Jobb középen
+pos.bl = Bal alsó
+pos.bc = Alul középen
+pos.br = Jobb alsó
+
+# ---- Tray icon and notifications
+tray.update = Elérhető frissítés: {0}
+notify.update.title = Elérhető a SysWidget {0}
+notify.update.text = Kattintson a letöltési oldal megnyitásához.
+
+# ---- Settings window
+settings.title = SysWidget beállításai
+settings.tab.sections = Szakaszok
+settings.tab.mini = Mini mód
+settings.tab.appearance = Megjelenés
+settings.sections.note = Kapcsolja be vagy ki a szakaszokat, rendezze át őket, és válassza ki a színüket és azt, hogy mit mutatnak.
+settings.mini.note = Válassza ki, mit mutasson az egysoros mini mód. Ugyanazt a sorrendet, színeket és részleteket (hőmérséklet, feltöltés) használja, mint a Szakaszok lap.
+settings.layout = Elrendezés
+settings.layout.normal = Normál
+settings.layout.compact = Tömör
+settings.language = Nyelv
+settings.language.auto = Automatikus ({0})
+settings.language.note = A fordítások a GitHubról frissülnek, amíg a „Frissítések keresése” be van kapcsolva.
+settings.reset = Szakaszok, részletek és színek visszaállítása
+detail.temp = Hőmérséklet
+detail.graph = Grafikon
+detail.mem = Memória
+detail.power = Teljesítmény
+detail.app = Alkalmazás neve
+detail.bar = Kihasználtsági sáv
+detail.up = Feltöltés
+detail.rw = Olvasás / írás
+detail.free = Szabad hely
+color.down = Letöltés
+color.up = Feltöltés
+
+# ---- Installer
+setup.title = SysWidget telepítő
+setup.title.uninstall = SysWidget eltávolítása
+setup.version = v{0}   ·   készítette: {1}
+setup.desc = Kis asztali widget CPU-, GPU-, FPS-, RAM-, hálózati és lemezadatokkal.\nTelepítés helye: {0}
+setup.desc.uninstall = Ez eltávolítja a SysWidgetet, a parancsikonjait és az indítási feladatát erről a gépről.
+setup.opt.settings = A beállításaim eltávolítása is
+setup.opt.startup = Indítás a Windows-zal (az FPS-számlálóhoz is szükséges)
+setup.opt.startmenu = Parancsikon a Start menüben
+setup.opt.desktop = Parancsikon az asztalon
+setup.opt.launch = A SysWidget indítása a végén
+setup.btn.install = Telepítés
+setup.btn.update = Frissítés
+setup.btn.uninstall = Eltávolítás
+setup.btn.cancel = Mégse
+setup.btn.close = Bezárás
+setup.extract = Először bontsa ki a teljes archívumot, majd abból a mappából futtassa a Setup.exe fájlt.
+setup.err.nosource = A SysWidget.exe nem található a Setup.exe mellett.\n\nElőször bontsa ki a teljes archívumot egy mappába, majd onnan futtassa a Setup.exe fájlt.
+setup.err.task = Nem sikerült létrehozni az indítási feladatot (schtasks kilépési kód: {0}).
+setup.st.stopping = SysWidget leállítása…
+setup.st.copying = Fájlok másolása…
+setup.st.startup = Automatikus indítás beállítása…
+setup.st.shortcuts = Parancsikonok létrehozása…
+setup.st.registering = Regisztrálás a telepített alkalmazások közé…
+setup.st.removing = Eltávolítás…
+setup.st.removed = A SysWidget eltávolítva.
+setup.st.done = Kész! A SysWidget telepítve van.
+setup.st.failed = Hiba történt.
+setup.shortcut = SysWidget - rendszerfigyelő widget
