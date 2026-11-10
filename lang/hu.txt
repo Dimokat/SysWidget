@@ -43,6 +43,7 @@ menu.mini = Mini mód
 menu.ontop = Mindig felül
 menu.lock = Pozíció zárolása
 menu.clickthrough = Kattintások átengedése (a használathoz tartsa lenyomva a Ctrl-t)
+menu.hidehover = Elrejtés a kurzor alatt (a használathoz tartsa lenyomva a Ctrl-t)
 menu.startup = Indítás a Windows-zal
 menu.position = Pozíció
 menu.show = Megjelenítés

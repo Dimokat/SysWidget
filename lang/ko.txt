@@ -43,6 +43,7 @@ menu.mini = 미니 모드
 menu.ontop = 항상 위
 menu.lock = 위치 잠금
 menu.clickthrough = 클릭 통과 (조작하려면 Ctrl 누르기)
+menu.hidehover = 커서를 올리면 숨기기 (조작하려면 Ctrl 누르기)
 menu.startup = Windows와 함께 시작
 menu.position = 위치
 menu.show = 표시

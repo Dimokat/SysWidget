@@ -43,6 +43,7 @@ menu.mini = Мини-режим
 menu.ontop = Поверх других окон
 menu.lock = Закрепить положение
 menu.clickthrough = Пропускать клики (удерживайте Ctrl для взаимодействия)
+menu.hidehover = Скрывать под курсором (удерживайте Ctrl для взаимодействия)
 menu.startup = Запускать вместе с Windows
 menu.position = Положение
 menu.show = Показывать

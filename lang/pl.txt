@@ -43,6 +43,7 @@ menu.mini = Tryb mini
 menu.ontop = Zawsze na wierzchu
 menu.lock = Zablokuj położenie
 menu.clickthrough = Przepuszczaj kliknięcia (przytrzymaj Ctrl, aby użyć)
+menu.hidehover = Ukrywaj pod kursorem (przytrzymaj Ctrl, aby użyć)
 menu.startup = Uruchamiaj z systemem Windows
 menu.position = Położenie
 menu.show = Pokaż

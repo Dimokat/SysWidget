@@ -323,6 +323,8 @@ sealed class WidgetForm : Form
     delegate void WinEventProc(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
 
     [DllImport("user32.dll")] static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr hdcDst, IntPtr pptDst, ref SIZE psize, IntPtr hdcSrc, ref POINT pptSrc, int crKey, ref BLENDFUNCTION pblend, int dwFlags);
+    // Same call with only the opacity changed (no new picture), used for fading.
+    [DllImport("user32.dll", EntryPoint = "UpdateLayeredWindow")] static extern bool UpdateLayeredAlpha(IntPtr hwnd, IntPtr hdcDst, IntPtr pptDst, IntPtr psize, IntPtr hdcSrc, IntPtr pptSrc, int crKey, ref BLENDFUNCTION pblend, int dwFlags);
     [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr hwnd);
     [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr hwnd, IntPtr dc);
     [DllImport("gdi32.dll")] static extern IntPtr CreateCompatibleDC(IntPtr dc);
@@ -357,6 +359,9 @@ sealed class WidgetForm : Form
     bool onTop, locked, desktopRaised;
     bool clickThrough, interactive, inMove, hasMoveTarget; Point moveTarget;
     readonly System.Windows.Forms.Timer ctTimer = new System.Windows.Forms.Timer();
+    // Hide under cursor: the widget fades out and lets clicks through while the mouse is over it; Ctrl brings it back.
+    bool hideHover; float fade = 1f, fadeTarget = 1f;
+    readonly System.Windows.Forms.Timer fadeTimer = new System.Windows.Forms.Timer { Interval = 15 };
     int posX = int.MinValue, posY = int.MinValue;
 
     // ------------------------------------------------------------------ look
@@ -383,7 +388,7 @@ sealed class WidgetForm : Form
     List<DriveStat> drives = new List<DriveStat>();
     int tick;
     readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
-    ContextMenuStrip menu; ToolStripMenuItem miTop, miLock, miClick, miStartup, miHide;
+    ContextMenuStrip menu; ToolStripMenuItem miTop, miLock, miClick, miHover, miStartup, miHide;
     NotifyIcon tray; bool hidden; string trayText = "", notifiedTag;
     static readonly int WM_SHOWME = Program.RegisterWindowMessage("SysWidget.Show");
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int cmd);
@@ -417,9 +422,10 @@ sealed class WidgetForm : Form
         BuildTray();
         timer.Interval = 1000;
         timer.Tick += delegate { OnTick(); };
-        // Click-through: poll Ctrl + cursor 20x/s, only while click-through is on.
+        // Click-through / hide under cursor: poll Ctrl + cursor 20x/s, only while one of them is on.
         ctTimer.Interval = 50;
         ctTimer.Tick += delegate { CheckInteractive(); };
+        fadeTimer.Tick += delegate { FadeStep(); };
     }
 
     void ApplyScale()
@@ -505,7 +511,7 @@ sealed class WidgetForm : Form
         get
         {
             var cp = base.CreateParams; cp.ExStyle |= WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
-            if (clickThrough) cp.ExStyle |= WS_EX_TRANSPARENT;
+            if (PassThrough) cp.ExStyle |= WS_EX_TRANSPARENT;
             return cp;
         }
     }
@@ -517,23 +523,54 @@ sealed class WidgetForm : Form
         SetWindowLongPtr(Handle, GWL_EXSTYLE, new IntPtr(ex));
     }
 
+    // Clicks go through the widget unless Ctrl is held over it (click-through and hide under cursor).
+    bool PassThrough { get { return clickThrough || hideHover; } }
+
     void CheckInteractive()
     {
-        if (!clickThrough) return;
+        if (!PassThrough) { FadeTo(1f); return; }
         bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-        bool want = (ctrl && Body.Contains(Cursor.Position)) || inMove || menu.Visible;
+        bool over = Body.Contains(Cursor.Position);
+        bool want = (ctrl && over) || inMove || (menu != null && menu.Visible);
+        FadeTo(hideHover && over && !want ? 0f : 1f);
         if (want == interactive) return;
         interactive = want;
         SetTransparent(!want);
         Render();
     }
 
-    void SetClickThrough(bool on)
+    void ApplyPassThrough()
     {
-        clickThrough = on; interactive = false;
-        SetTransparent(on);
-        ctTimer.Enabled = on;
+        interactive = false;
+        SetTransparent(PassThrough);
+        ctTimer.Enabled = PassThrough;
+        if (!PassThrough) FadeTo(1f);
         Render();
+    }
+
+    void SetClickThrough(bool on) { clickThrough = on; ApplyPassThrough(); }
+    void SetHideHover(bool on) { hideHover = on; ApplyPassThrough(); }
+
+    byte Alpha() { return (byte)Math.Round(opacity * 255 / 100.0 * fade); }
+
+    void FadeTo(float t)
+    {
+        if (fadeTarget == t && (fade == t || fadeTimer.Enabled)) return;
+        fadeTarget = t;
+        fadeTimer.Enabled = true;
+    }
+
+    // ~140 ms from shown to gone (and back).
+    void FadeStep()
+    {
+        const float step = 15f / 140f;
+        fade = fade < fadeTarget ? Math.Min(fadeTarget, fade + step) : Math.Max(fadeTarget, fade - step);
+        if (IsHandleCreated && !hidden)
+        {
+            var blend = new BLENDFUNCTION { BlendOp = 0, BlendFlags = 0, SourceConstantAlpha = Alpha(), AlphaFormat = 1 };
+            UpdateLayeredAlpha(Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0, ref blend, 2 /*ULW_ALPHA*/);
+        }
+        if (fade == fadeTarget) fadeTimer.Enabled = false;
     }
     protected override bool ShowWithoutActivation { get { return true; } }
 
@@ -547,13 +584,13 @@ sealed class WidgetForm : Form
         fgProc = OnForeground;
         fgHook = SetWinEventHook(3 /*EVENT_SYSTEM_FOREGROUND*/, 3, IntPtr.Zero, fgProc, 0, 0, 2 /*OUTOFCONTEXT|SKIPOWNPROCESS*/);
         timer.Start();
-        ctTimer.Enabled = clickThrough;
+        ctTimer.Enabled = PassThrough;
         StartUpdateChecks();
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        timer.Stop(); ctTimer.Stop();
+        timer.Stop(); ctTimer.Stop(); fadeTimer.Stop();
         if (fgHook != IntPtr.Zero) UnhookWinEvent(fgHook);
         SaveSettings();
         pdh.Dispose();
@@ -796,7 +833,7 @@ sealed class WidgetForm : Form
             hbmp = bmp.GetHbitmap(Color.FromArgb(0));
             old = SelectObject(mem, hbmp);
             var size = new SIZE(bmp.Width, bmp.Height); var src = new POINT();
-            var blend = new BLENDFUNCTION { BlendOp = 0, BlendFlags = 0, SourceConstantAlpha = (byte)(opacity * 255 / 100), AlphaFormat = 1 };
+            var blend = new BLENDFUNCTION { BlendOp = 0, BlendFlags = 0, SourceConstantAlpha = Alpha(), AlphaFormat = 1 };
             UpdateLayeredWindow(Handle, screen, IntPtr.Zero, ref size, mem, ref src, 0, ref blend, 2 /*ULW_ALPHA*/);
         }
         finally
@@ -814,7 +851,7 @@ sealed class WidgetForm : Form
         if (H > 0)
             using (var path = PanelPath())
             using (var b = new SolidBrush(panelBg))
-            using (var p = clickThrough && interactive ? new Pen(Color.FromArgb(200, cCpu), 1.5f * s) : new Pen(Color.FromArgb(34, 255, 255, 255), 1))
+            using (var p = PassThrough && interactive ? new Pen(Color.FromArgb(200, cCpu), 1.5f * s) : new Pen(Color.FromArgb(34, 255, 255, 255), 1))
             {
                 g.FillPath(b, path);
                 var saved = g.Clip;
@@ -1406,8 +1443,9 @@ sealed class WidgetForm : Form
         menu.Items.Add(miMini);
         menu.Opening += delegate { miMini.Checked = mini; };
         miClick = new ToolStripMenuItem(Lang.T("menu.clickthrough"), null, delegate { SetClickThrough(!clickThrough); SaveSettings(); });
+        miHover = new ToolStripMenuItem(Lang.T("menu.hidehover"), null, delegate { SetHideHover(!hideHover); SaveSettings(); });
         miStartup = new ToolStripMenuItem(Lang.T("menu.startup"), null, delegate { SetStartup(!IsStartup()); });
-        menu.Items.Add(miTop); menu.Items.Add(miLock); menu.Items.Add(miClick); menu.Items.Add(miStartup);
+        menu.Items.Add(miTop); menu.Items.Add(miLock); menu.Items.Add(miClick); menu.Items.Add(miHover); menu.Items.Add(miStartup);
         menu.Closed += delegate { CheckInteractive(); };
         var show = new ToolStripMenuItem(Lang.T("menu.show"));
         show.DropDownItems.Add(new ToolStripMenuItem("\u2026")); // filled when opened, from the current order and mode
@@ -1460,7 +1498,7 @@ sealed class WidgetForm : Form
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem(Lang.F("menu.about", VersionText, "Dimokat"), null, delegate { OpenUrl("https://github.com/" + Repo); }) { Name = "dim" });
         menu.Items.Add(new ToolStripMenuItem(Lang.T("menu.donate"), null, delegate { OpenUrl(DonateUrl); }));
-        menu.Opening += delegate { miTop.Checked = onTop; miLock.Checked = locked; miClick.Checked = clickThrough; miStartup.Checked = IsStartup(); };
+        menu.Opening += delegate { miTop.Checked = onTop; miLock.Checked = locked; miClick.Checked = clickThrough; miHover.Checked = hideHover; miStartup.Checked = IsStartup(); };
         // Submenus open toward the inside of the screen the menu is on (also when opened from the tray).
         menu.Opening += delegate
         {
@@ -1890,6 +1928,7 @@ sealed class WidgetForm : Form
                 else if (k == "ontop") onTop = v == "1";
                 else if (k == "locked") locked = v == "1";
                 else if (k == "clickthrough") clickThrough = v == "1";
+                else if (k == "hidehover") hideHover = v == "1";
                 else if (k == "mini") mini = v == "1";
                 else if (k == "hidden") hidden = v == "1";
                 else if (k == "bg") accentBg = v == "accent";
@@ -1937,7 +1976,7 @@ sealed class WidgetForm : Form
         {
             File.WriteAllLines(iniPath, new[] {
                 "x=" + (Left + M).ToString(CI), "y=" + (Top + M).ToString(CI),
-                "ontop=" + (onTop ? "1" : "0"), "locked=" + (locked ? "1" : "0"), "clickthrough=" + (clickThrough ? "1" : "0"), "mini=" + (mini ? "1" : "0"), "hidden=" + (hidden ? "1" : "0"), "bg=" + (accentBg ? "accent" : "dark"), "lang=" + langChoice, "updates=" + (checkUpdates ? "1" : "0"), "anchor=" + anchor,
+                "ontop=" + (onTop ? "1" : "0"), "locked=" + (locked ? "1" : "0"), "clickthrough=" + (clickThrough ? "1" : "0"), "hidehover=" + (hideHover ? "1" : "0"), "mini=" + (mini ? "1" : "0"), "hidden=" + (hidden ? "1" : "0"), "bg=" + (accentBg ? "accent" : "dark"), "lang=" + langChoice, "updates=" + (checkUpdates ? "1" : "0"), "anchor=" + anchor,
                 "scale=" + scale.ToString(CI), "opacity=" + opacity.ToString(CI),
                 "order=" + string.Join(",", order), "hide=" + string.Join(",", hiddenFull), "minihide=" + string.Join(",", hiddenMini),
                 "off=" + string.Join(",", detailsOff), "compact=" + (compact ? "1" : "0"), "colors=" + ColorsText() });

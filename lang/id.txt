@@ -43,6 +43,7 @@ menu.mini = Mode mini
 menu.ontop = Selalu di atas
 menu.lock = Kunci posisi
 menu.clickthrough = Tembuskan klik (tahan Ctrl untuk berinteraksi)
+menu.hidehover = Sembunyikan saat kursor di atasnya (tahan Ctrl untuk berinteraksi)
 menu.startup = Mulai bersama Windows
 menu.position = Posisi
 menu.show = Tampilkan

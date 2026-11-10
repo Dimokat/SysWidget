@@ -43,6 +43,7 @@ menu.mini = Mini mod
 menu.ontop = Her zaman üstte
 menu.lock = Konumu kilitle
 menu.clickthrough = Tıklamaları geçir (etkileşim için Ctrl'yi basılı tutun)
+menu.hidehover = İmlecin altında gizle (etkileşim için Ctrl'yi basılı tutun)
 menu.startup = Windows ile başlat
 menu.position = Konum
 menu.show = Göster

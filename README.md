@@ -31,8 +31,8 @@ Requires Windows 10 or 11 (uses the .NET Framework that ships with Windows). Eve
 |---|---|
 | Drag | Move it. It snaps to screen edges and docks to them. |
 | Double-click | Open Task Manager |
-| Right-click | Menu: Mini mode, Always on top, Lock position, Click-through, Start with Windows, Position, Show, Size, Opacity, Background, Settings, Check for updates |
-| Ctrl + mouse | Interact with it while Click-through is on |
+| Right-click | Menu: Mini mode, Always on top, Lock position, Click-through, Hide under cursor, Start with Windows, Position, Show, Size, Opacity, Background, Settings, Check for updates |
+| Ctrl + mouse | Interact with it while Click-through or Hide under cursor is on. With Hide under cursor, the widget fades away while the mouse is over it and clicks go to whatever is underneath; holding Ctrl brings it back. |
 | Tray icon | Left-click hides/shows the widget, right-click opens the same menu, hover shows a quick summary |
 
 - **Mini mode** turns it into a single line of stats.

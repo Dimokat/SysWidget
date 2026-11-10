@@ -43,6 +43,7 @@ menu.mini = Mini režim
 menu.ontop = Vždy navrchu
 menu.lock = Zamknout pozici
 menu.clickthrough = Propouštět kliknutí (pro ovládání podržte Ctrl)
+menu.hidehover = Skrýt pod kurzorem (pro ovládání podržte Ctrl)
 menu.startup = Spouštět se systémem Windows
 menu.position = Pozice
 menu.show = Zobrazit

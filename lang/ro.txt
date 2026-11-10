@@ -43,6 +43,7 @@ menu.mini = Mod mini
 menu.ontop = Mereu deasupra
 menu.lock = Blochează poziția
 menu.clickthrough = Click-uri prin widget (țineți Ctrl pentru a interacționa)
+menu.hidehover = Ascunde sub cursor (țineți Ctrl pentru a interacționa)
 menu.startup = Pornește odată cu Windows
 menu.position = Poziție
 menu.show = Afișează

@@ -43,6 +43,7 @@ menu.mini = Minimodus
 menu.ontop = Immer im Vordergrund
 menu.lock = Position sperren
 menu.clickthrough = Klicks durchlassen (Strg halten zum Bedienen)
+menu.hidehover = Unter dem Mauszeiger ausblenden (Strg halten zum Bedienen)
 menu.startup = Mit Windows starten
 menu.position = Position
 menu.show = Anzeigen

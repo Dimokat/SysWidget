@@ -43,6 +43,7 @@ menu.mini = 迷你模式
 menu.ontop = 永遠在最上層
 menu.lock = 鎖定位置
 menu.clickthrough = 點擊穿透 (按住 Ctrl 進行操作)
+menu.hidehover = 滑鼠停留時隱藏 (按住 Ctrl 進行操作)
 menu.startup = 隨 Windows 啟動
 menu.position = 位置
 menu.show = 顯示

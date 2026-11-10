@@ -43,6 +43,7 @@ menu.mini = Chế độ mini
 menu.ontop = Luôn ở trên cùng
 menu.lock = Khóa vị trí
 menu.clickthrough = Cho phép nhấp xuyên qua (giữ Ctrl để tương tác)
+menu.hidehover = Ẩn khi di chuột qua (giữ Ctrl để tương tác)
 menu.startup = Khởi động cùng Windows
 menu.position = Vị trí
 menu.show = Hiển thị

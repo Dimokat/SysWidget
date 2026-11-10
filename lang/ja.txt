@@ -43,6 +43,7 @@ menu.mini = ミニモード
 menu.ontop = 常に手前に表示
 menu.lock = 位置を固定
 menu.clickthrough = クリックを透過 (Ctrl を押しながら操作)
+menu.hidehover = カーソルが重なったら隠す (Ctrl を押しながら操作)
 menu.startup = Windows と同時に起動
 menu.position = 位置
 menu.show = 表示

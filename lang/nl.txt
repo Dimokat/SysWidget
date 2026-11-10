@@ -43,6 +43,7 @@ menu.mini = Minimodus
 menu.ontop = Altijd op voorgrond
 menu.lock = Positie vergrendelen
 menu.clickthrough = Klikken doorlaten (houd Ctrl ingedrukt om te bedienen)
+menu.hidehover = Verbergen onder de cursor (houd Ctrl ingedrukt om te bedienen)
 menu.startup = Starten met Windows
 menu.position = Positie
 menu.show = Weergeven
