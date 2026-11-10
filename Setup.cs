@@ -47,6 +47,32 @@ static class Setup
         get { using (var k = Registry.LocalMachine.OpenSubKey(UninstKey)) return k != null; }
     }
 
+    /// <summary>This installer's version.</summary>
+    public static System.Version OwnVersion { get { return Short(Version); } }
+
+    /// <summary>The installed version: from SysWidget.exe itself, else from Apps &amp; Features; null if unknown.</summary>
+    public static System.Version InstalledVersion
+    {
+        get
+        {
+            try { if (File.Exists(Exe)) { var v = Short(FileVersionInfo.GetVersionInfo(Exe).FileVersion); if (v != null) return v; } } catch { }
+            try { using (var k = Registry.LocalMachine.OpenSubKey(UninstKey)) if (k != null) return Short(k.GetValue("DisplayVersion") as string); } catch { }
+            return null;
+        }
+    }
+
+    static System.Version Short(string s)
+    {
+        System.Version v;
+        if (string.IsNullOrEmpty(s) || !System.Version.TryParse(s.Trim(), out v)) return null;
+        return new System.Version(v.Major, v.Minor, Math.Max(v.Build, 0));
+    }
+
+    // What the current install has, so an update keeps the same choices.
+    public static bool HasStartupTask { get { try { return Run("schtasks.exe", "/Query /TN \"SysWidget\"") == 0; } catch { return false; } } }
+    public static bool HasStartMenuShortcut { get { return File.Exists(StartLnk); } }
+    public static bool HasDesktopShortcut { get { return File.Exists(DeskLnk); } }
+
     static int Run(string file, string args)
     {
         var psi = new ProcessStartInfo(file, args) { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
@@ -142,6 +168,13 @@ static class Setup
         if (removeSettings)
             try { Directory.Delete(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SysWidget"), true); } catch { }
         TryDelete(Exe);
+        // Run from Setup.exe: remove the folder now, so installing again right away isn't undone by a delayed removal.
+        if (!Application.ExecutablePath.StartsWith(Dir + "\\", StringComparison.OrdinalIgnoreCase))
+        {
+            TryDelete(Uninst);
+            try { Directory.Delete(Dir, true); } catch { }
+            return;
+        }
         // Uninstall.exe may be the program running right now: remove the folder a moment after it exits.
         Process.Start(new ProcessStartInfo("cmd.exe", "/c ping 127.0.0.1 -n 3 >nul & rmdir /s /q \"" + Dir + "\"") { CreateNoWindow = true, UseShellExecute = false });
     }
@@ -154,6 +187,7 @@ sealed class SetupForm : Form
     readonly bool uninstallMode;
     readonly CheckBox cbStartup, cbMenu, cbDesk, cbLaunch, cbSettings;
     readonly Button btnMain, btnAlt, btnCancel;
+    bool altOn; // Visible reads false until the window is shown, so this tracks whether Uninstall is offered
     readonly Label lblStatus;
 
     public SetupForm(bool uninstall)
@@ -194,22 +228,54 @@ sealed class SetupForm : Form
 
         lblStatus = new Label { ForeColor = Accent, Location = new Point(24, ClientSize.Height - 78), Size = new Size(412, 22) };
         Controls.Add(lblStatus);
-        // Buttons from the right edge, each as wide as its text needs.
-        int right = 436;
-        btnCancel = Btn(Lang.T("setup.btn.cancel"), ref right, BtnBg); btnCancel.Click += delegate { Close(); };
-        btnMain = Btn(Lang.T(uninstall ? "setup.btn.uninstall" : Setup.Installed ? "setup.btn.update" : "setup.btn.install"), ref right, BtnMain);
+        btnCancel = Btn(Lang.T("setup.btn.cancel"), BtnBg); btnCancel.Click += delegate { Close(); };
+        btnMain = Btn(Lang.T(uninstall ? "setup.btn.uninstall" : "setup.btn.install"), BtnMain);
         btnMain.Click += delegate { Go(); };
-        if (!uninstall && Setup.Installed)
+        if (!uninstall)
         {
-            btnAlt = Btn(Lang.T("setup.btn.uninstall"), ref right, BtnBg);
-            btnAlt.Click += delegate { using (var f = new SetupForm(true)) f.ShowDialog(this); if (!Setup.Installed) Close(); };
+            btnAlt = Btn(Lang.T("setup.btn.uninstall"), BtnBg);
+            // After uninstalling from here, come back to this window, ready to install again.
+            btnAlt.Click += delegate { using (var f = new SetupForm(true)) f.ShowDialog(this); ShowState(); };
         }
         AcceptButton = btnMain; CancelButton = btnCancel;
-        if (!uninstall && !Setup.HasSource)
+        if (uninstall) LayoutButtons(); else ShowState();
+    }
+
+    // Install, Update, Reinstall or Downgrade, by comparing this installer's version with the installed one.
+    void ShowState()
+    {
+        bool inst = Setup.Installed;
+        var have = inst ? Setup.InstalledVersion : null;
+        int cmp = have == null ? 1 : Setup.OwnVersion.CompareTo(have);
+        btnMain.Text = Lang.T(!inst ? "setup.btn.install" : cmp > 0 ? "setup.btn.update" : cmp == 0 ? "setup.btn.reinstall" : "setup.btn.downgrade");
+        btnAlt.Visible = altOn = inst;
+        if (inst) { cbStartup.Checked = Setup.HasStartupTask; cbMenu.Checked = Setup.HasStartMenuShortcut; cbDesk.Checked = Setup.HasDesktopShortcut; }
+        if (!Setup.HasSource)
         {
             lblStatus.ForeColor = Color.FromArgb(0xFF, 0xA7, 0x26);
             lblStatus.Text = Lang.T("setup.extract");
             btnMain.Enabled = false;
+        }
+        else
+        {
+            lblStatus.ForeColor = Dim;
+            lblStatus.Text = !inst ? "" : have == null ? Lang.T("setup.installed.unknown") : Lang.F("setup.installed", have.ToString());
+            btnMain.Enabled = true;
+        }
+        LayoutButtons();
+    }
+
+    // Buttons from the right edge, each as wide as its text needs.
+    void LayoutButtons()
+    {
+        int right = 436;
+        foreach (var b in new[] { btnCancel, btnMain, btnAlt })
+        {
+            if (b == null || (b == btnAlt && !altOn)) continue;
+            int w = Math.Max(86, TextRenderer.MeasureText(b.Text, Font).Width + 28);
+            right -= w;
+            b.SetBounds(right, ClientSize.Height - 48, w, 30);
+            right -= 8;
         }
     }
 
@@ -219,16 +285,14 @@ sealed class SetupForm : Form
         Controls.Add(c); y += 27; return c;
     }
 
-    Button Btn(string text, ref int right, Color bg)
+    Button Btn(string text, Color bg)
     {
-        int w = Math.Max(86, TextRenderer.MeasureText(text, Font).Width + 28);
-        right -= w;
-        var b = new Button { Text = text, Location = new Point(right, ClientSize.Height - 48), Size = new Size(w, 30), FlatStyle = FlatStyle.Flat, BackColor = bg, ForeColor = Fg };
+        var b = new Button { Text = text, FlatStyle = FlatStyle.Flat, BackColor = bg, ForeColor = Fg };
         b.FlatAppearance.BorderColor = Color.FromArgb(70, 72, 80);
-        Controls.Add(b); right -= 8; return b;
+        Controls.Add(b); return b;
     }
 
-    void Status(string s) { lblStatus.Text = s; lblStatus.Refresh(); }
+    void Status(string s) { lblStatus.ForeColor = Accent; lblStatus.Text = s; lblStatus.Refresh(); }
 
     void Go()
     {
