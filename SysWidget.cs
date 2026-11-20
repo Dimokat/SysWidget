@@ -1,4 +1,4 @@
-// SysWidget - tiny native system monitor widget for Windows.
+﻿// SysWidget - tiny native system monitor widget for Windows.
 // C# 5 / .NET Framework 4.x, no dependencies. Build with build.bat (uses csc.exe shipped with Windows).
 using System;
 using System.Collections.Generic;
@@ -70,6 +70,8 @@ static class Program
         }
         // Started without admin rights (Start menu, double-click)? If the startup task exists, start through it
         // instead: it runs with highest privileges (needed for FPS) and shows no UAC prompt.
+        // After importing settings the widget restarts itself: wait for the old instance to exit first.
+        if (Array.IndexOf(args, "--restart") >= 0) for (int i = 0; i < 100 && AlreadyRunning(); i++) Thread.Sleep(100);
         if (AlreadyRunning()) { PingRunning(); return; }
         if (args.Length == 0 && !IsAdmin() && WidgetForm.Schtasks("/Query /TN \"SysWidget\"") == 0 &&
             WidgetForm.Schtasks("/Run /TN \"SysWidget\"") == 0) return;
@@ -94,6 +96,7 @@ sealed class Ring
     public void Add(float v) { data[head] = v; head = (head + 1) % data.Length; if (count < data.Length) count++; }
     public float this[int k] { get { int start = (head - count + data.Length) % data.Length; return data[(start + k) % data.Length]; } }
     public float Max() { float m = 0; for (int k = 0; k < count; k++) { float v = this[k]; if (v > m) m = v; } return m; }
+    public Ring Resized(int cap) { var r = new Ring(cap); for (int k = Math.Max(0, count - cap); k < count; k++) r.Add(this[k]); return r; }
 }
 
 static class Nvml
@@ -367,19 +370,24 @@ sealed class WidgetForm : Form
     // ------------------------------------------------------------------ look
     float dpi, s; int W; int H; float pad;
     Font fLabel, fValue, fSmall;
-    float scale = 1f; int opacity = 100; bool mini;
+    float scale = 1f; int opacity = 100; bool miniPref;
+    // Mini mode as chosen, or forced while a fullscreen app is in front (game-aware mode).
+    bool mini { get { return miniPref || (fsActive && fsMode == 1); } }
     string anchor = ""; Point moveStart, grab;
     readonly StringFormat sf = (StringFormat)StringFormat.GenericTypographic.Clone();
-    readonly SolidBrush brLabel, brValue, brDim, brWarn, brHot;
+    SolidBrush brLabel, brValue, brDim, brWarn, brHot;
+    Color ink = Color.White; // text and lines: white on the dark/accent panel, near-black on the light one
     static readonly Color cCpu = Color.FromArgb(0x4F, 0xC3, 0xF7), cGpu = Color.FromArgb(0x81, 0xC7, 0x84),
         cRam = Color.FromArgb(0xFF, 0xB7, 0x4D), cDown = Color.FromArgb(0xBA, 0x68, 0xC8), cUp = Color.FromArgb(0xF0, 0x62, 0x92),
-        cDisk = Color.FromArgb(0x90, 0xA4, 0xAE), cFps = Color.FromArgb(0xFF, 0xD5, 0x4F), cWarn = Color.FromArgb(0xFF, 0xA7, 0x26), cHot = Color.FromArgb(0xEF, 0x53, 0x50);
+        cDisk = Color.FromArgb(0x90, 0xA4, 0xAE), cFps = Color.FromArgb(0xFF, 0xD5, 0x4F),
+        cPing = Color.FromArgb(0x4D, 0xD0, 0xE1), cBat = Color.FromArgb(0xAE, 0xD5, 0x81), cMedia = Color.FromArgb(0xCE, 0x93, 0xD8), cWarn = Color.FromArgb(0xFF, 0xA7, 0x26), cHot = Color.FromArgb(0xEF, 0x53, 0x50);
     Bitmap canvas;
 
     // ------------------------------------------------------------------ sensors
     readonly Pdh pdh = new Pdh();
     IntPtr pcCpu, pcTemp, pcDiskR, pcDiskW;
-    readonly Ring hCpu = new Ring(60), hDown = new Ring(60), hUp = new Ring(60), hFps = new Ring(60);
+    Ring hCpu = new Ring(60), hDown = new Ring(60), hUp = new Ring(60), hFps = new Ring(60), hPing = new Ring(60);
+    readonly Pinger pinger = new Pinger();
     FpsCounter fps; float fpsVal; string fpsApp = ""; int fpsPid = -1; readonly int ownPid = Process.GetCurrentProcess().Id;
     float cpu, cpuTemp = float.NaN, ramUsed, ramTotal, diskR, diskW, down, up;
     List<Gpu> gpus = new List<Gpu>();
@@ -388,7 +396,7 @@ sealed class WidgetForm : Form
     List<DriveStat> drives = new List<DriveStat>();
     int tick;
     readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
-    ContextMenuStrip menu; ToolStripMenuItem miTop, miLock, miClick, miHover, miStartup, miHide;
+    ContextMenuStrip menu; ToolStripMenuItem miTop, miLock, miHide;
     NotifyIcon tray; bool hidden; string trayText = "", notifiedTag;
     static readonly int WM_SHOWME = Program.RegisterWindowMessage("SysWidget.Show");
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int cmd);
@@ -399,10 +407,7 @@ sealed class WidgetForm : Form
     {
         using (var g = Graphics.FromHwnd(IntPtr.Zero)) dpi = g.DpiX / 96f;
         sf.FormatFlags |= StringFormatFlags.MeasureTrailingSpaces | StringFormatFlags.NoWrap;
-        brLabel = new SolidBrush(Color.FromArgb(150, 255, 255, 255));
-        brValue = new SolidBrush(Color.FromArgb(235, 255, 255, 255));
-        brDim = new SolidBrush(Color.FromArgb(105, 255, 255, 255));
-        brWarn = new SolidBrush(cWarn); brHot = new SolidBrush(cHot);
+        UpdateInk();
 
         FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual; Text = "SysWidget";
         try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
@@ -412,6 +417,7 @@ sealed class WidgetForm : Form
         UpdatePanelColor();
         ApplyScale();
         InitSensors();
+        ResizeHistory();
         Sample();
         if (mini) W = MiniWidth();
         H = Measure();
@@ -420,12 +426,13 @@ sealed class WidgetForm : Form
         if (anchor != "") SnapTo(anchor);
         BuildMenu();
         BuildTray();
-        timer.Interval = 1000;
+        timer.Interval = intervalMs;
         timer.Tick += delegate { OnTick(); };
         // Click-through / hide under cursor: poll Ctrl + cursor 20x/s, only while one of them is on.
         ctTimer.Interval = 50;
         ctTimer.Tick += delegate { CheckInteractive(); };
         fadeTimer.Tick += delegate { FadeStep(); };
+        hoverTimer.Tick += delegate { HoverStep(); };
     }
 
     void ApplyScale()
@@ -548,8 +555,8 @@ sealed class WidgetForm : Form
         Render();
     }
 
-    void SetClickThrough(bool on) { clickThrough = on; ApplyPassThrough(); }
-    void SetHideHover(bool on) { hideHover = on; ApplyPassThrough(); }
+    // 0 normal, 1 clicks go through (hold Ctrl to use it), 2 hides under the cursor (hold Ctrl to use it)
+    void SetMouseMode(int m) { clickThrough = m == 1; hideHover = m == 2; ApplyPassThrough(); SaveSettings(); }
 
     byte Alpha() { return (byte)Math.Round(opacity * 255 / 100.0 * fade); }
 
@@ -586,13 +593,23 @@ sealed class WidgetForm : Form
         timer.Start();
         ctTimer.Enabled = PassThrough;
         StartUpdateChecks();
+        ApplyHotkeys();
+        CheckFullscreen();
+        if (!tipsSeen)
+        {
+            var t = new System.Windows.Forms.Timer { Interval = 1500 };
+            t.Tick += delegate { t.Stop(); t.Dispose(); ShowTips(); };
+            t.Start();
+        }
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        timer.Stop(); ctTimer.Stop(); fadeTimer.Stop();
+        timer.Stop(); ctTimer.Stop(); fadeTimer.Stop(); hoverTimer.Stop();
         if (fgHook != IntPtr.Zero) UnhookWinEvent(fgHook);
-        SaveSettings();
+        UnregisterHotKey(Handle, 1); UnregisterHotKey(Handle, 2);
+        HidePopup();
+        if (!skipSave) SaveSettings();
         pdh.Dispose();
         if (fps != null) fps.Dispose();
         if (tray != null) { tray.Visible = false; tray.Dispose(); }
@@ -628,6 +645,7 @@ sealed class WidgetForm : Form
             if (g.Integrated) g.PcShared = pdh.Add(@"\GPU Adapter Memory(" + inst + @")\Shared Usage");
             g.MemTotal = g.Integrated ? g.DedicatedTotal + g.SharedTotal : g.DedicatedTotal;
         }
+        Battery.Sample();
         NormalizeLayout();
         pdh.Collect();
         RefreshNics(); RefreshDrives(); netClock.Start();
@@ -638,7 +656,7 @@ sealed class WidgetForm : Form
     {
         tick++;
         bool onAC = SystemInformation.PowerStatus.PowerLineStatus != PowerLineStatus.Offline;
-        timer.Interval = onAC ? 1000 : 2000;
+        timer.Interval = onAC ? intervalMs : Math.Max(2000, intervalMs * 2);
         if (tick % 15 == 0) RefreshNics();
         if (accentBg && tick % 10 == 0) UpdatePanelColor(); // fallback if a colour-change message was missed
         if (tick % 30 == 0)
@@ -648,10 +666,14 @@ sealed class WidgetForm : Form
         }
         Sample();
         UpdateTray();
-        if (hidden) return;
+        CheckAlerts();
+        CheckFullscreen();
+        if (hidden || fsHiddenNow) return;
         if (!onTop && !desktopRaised && DesktopIsAboveUs()) RaiseOverDesktop();
         if (onTop) KeepOnTop();
-        if (!HiddenByFullscreen()) Render();
+        // Nothing can see the widget (a fullscreen app or another window covers it): keep measuring, skip drawing.
+        if (HiddenByFullscreen() || Covered()) stale = true;
+        else { stale = false; Render(); }
     }
 
     void Sample()
@@ -669,6 +691,9 @@ sealed class WidgetForm : Form
         if (IsLive("net")) SampleNet();
         SampleGpus(onAC);
         if (IsLive("fps")) SampleFps();
+        if (IsLive("battery")) Battery.Sample();
+        if (IsLive("ping")) { pinger.Send(); float pm = pinger.Ms; hPing.Add(float.IsNaN(pm) ? 0 : pm); }
+        if (IsLive("media") && tick % 2 == 0) NowPlaying.Poll();
     }
 
     void SampleGpus(bool onAC)
@@ -785,6 +810,60 @@ sealed class WidgetForm : Form
         return r.L <= mon.Left && r.T <= mon.Top && r.R >= mon.Right && r.B >= mon.Bottom;
     }
 
+    // ---- game-aware mode: while a fullscreen app (game, video) is in front on our screen, switch to mini or hide
+    int fsMode; bool fsActive, fsHiddenNow, fsOverride; // fsOverride: shown again by hand during that fullscreen app
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool IsZoomed(IntPtr hwnd);
+    [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out int value, int size);
+
+    bool FullscreenInFront()
+    {
+        IntPtr fg = GetForegroundWindow();
+        if (fg == IntPtr.Zero || fg == Handle || IsZoomed(fg)) return false; // a maximized window isn't fullscreen
+        int pid; GetWindowThreadProcessId(fg, out pid); if (pid == ownPid) return false;
+        var sb = new StringBuilder(32); GetClassName(fg, sb, sb.Capacity);
+        string cls = sb.ToString();
+        if (cls == "WorkerW" || cls == "Progman" || cls == "Shell_TrayWnd" || cls == "Shell_SecondaryTrayWnd") return false;
+        RECT r; if (!GetWindowRect(fg, out r)) return false;
+        Rectangle mon = Screen.FromHandle(Handle).Bounds;
+        return r.L <= mon.Left && r.T <= mon.Top && r.R >= mon.Right && r.B >= mon.Bottom;
+    }
+
+    void CheckFullscreen()
+    {
+        if (!IsHandleCreated) return;
+        bool a = fsMode != 0 && FullscreenInFront();
+        if (a != fsActive) { fsActive = a; if (!a) fsOverride = false; if (fsMode == 1) Relayout(); }
+        bool hide = fsActive && fsMode == 2 && !hidden && !fsOverride;
+        if (hide == fsHiddenNow) return;
+        fsHiddenNow = hide;
+        if (hide) { HidePopup(); ShowWindow(Handle, 0 /*SW_HIDE*/); }
+        else if (!hidden)
+        {
+            Render(); ShowWindow(Handle, 8 /*SW_SHOWNA*/);
+            if (onTop) SetOnTop(true); else { desktopRaised = false; SendToDesktopLevel(); }
+        }
+    }
+
+    // True when a normal window above us covers the whole panel (only matters while not on top).
+    bool stale;
+    bool Covered()
+    {
+        if (onTop || !IsHandleCreated) return false;
+        var b = Body; int guard = 0;
+        for (IntPtr w = GetWindow(Handle, GW_HWNDPREV); w != IntPtr.Zero && guard++ < 500; w = GetWindow(w, GW_HWNDPREV))
+        {
+            if (!IsWindowVisible(w) || IsIconic(w)) continue;
+            long ex = GetWindowLongPtr(w, GWL_EXSTYLE).ToInt64();
+            if ((ex & (WS_EX_LAYERED | WS_EX_TRANSPARENT)) != 0) continue; // overlays and see-through windows
+            int cloaked; if (DwmGetWindowAttribute(w, 14 /*DWMWA_CLOAKED*/, out cloaked, 4) == 0 && cloaked != 0) continue;
+            RECT r; if (!GetWindowRect(w, out r)) continue;
+            if (r.L <= b.Left && r.T <= b.Top && r.R >= b.Right && r.B >= b.Bottom) return true;
+        }
+        return false;
+    }
+
     // ------------------------------------------------------------------ drawing
     int Measure()
     {
@@ -847,11 +926,12 @@ sealed class WidgetForm : Form
     float Draw(Graphics g)
     {
         float x = pad, w = W - 2 * pad, y = pad;
+        sectionRects.Clear(); mediaBtns.Clear();
 
         if (H > 0)
             using (var path = PanelPath())
             using (var b = new SolidBrush(panelBg))
-            using (var p = PassThrough && interactive ? new Pen(Color.FromArgb(200, cCpu), 1.5f * s) : new Pen(Color.FromArgb(34, 255, 255, 255), 1))
+            using (var p = PassThrough && interactive ? new Pen(Color.FromArgb(200, cCpu), 1.5f * s) : new Pen(InkA(34), 1))
             {
                 g.FillPath(b, path);
                 var saved = g.Clip;
@@ -873,7 +953,9 @@ sealed class WidgetForm : Form
         foreach (var id in Sections())
         {
             if (!IsShown(id, false)) continue;
+            float top = y;
             gap = DrawSection(g, id, x, w, ref y, gh, sgap);
+            sectionRects[id] = new RectangleF(0, top - sgap / 2, W, y - top + sgap);
             y += gap;
         }
         return y - gap + pad;
@@ -883,7 +965,7 @@ sealed class WidgetForm : Form
 
     float DrawSection(Graphics g, string id, float x, float w, ref float y, float gh, float sgap)
     {
-        Color c = ColorOf(id);
+        Color c = Shade(ColorOf(id));
         switch (id)
         {
             case "cpu":
@@ -902,12 +984,12 @@ sealed class WidgetForm : Form
             case "net":
             {
                 bool upOn = Opt(id, "up");
-                Header(g, ref y, Lang.T("label.net"), c, "\u2193 " + Rate(down), brValue, upOn ? "\u2191 " + Rate(up) : null, brLabel);
+                Header(g, ref y, Lang.T("label.net"), c, "\u2193 " + RateNet(down), brValue, upOn ? "\u2191 " + RateNet(up) : null, brLabel);
                 if (Opt(id, "graph"))
                 {
                     y += 3 * s;
                     float netMax = Math.Max(64 * 1024f, upOn ? Math.Max(hDown.Max(), hUp.Max()) : hDown.Max());
-                    Graph(g, x, y, w, gh, hDown, netMax, c, upOn ? hUp : null, ColorOf("net.up")); y += gh;
+                    Graph(g, x, y, w, gh, hDown, netMax, c, upOn ? hUp : null, Shade(ColorOf("net.up"))); y += gh;
                 }
                 return sgap;
             }
@@ -926,6 +1008,36 @@ sealed class WidgetForm : Form
                     dg = (compact ? 5 : 7) * s; y += 4 * s + dg;
                 }
                 y -= dg; return sgap;
+            }
+            case "ping":
+            {
+                float ms = pinger.Ms;
+                Header(g, ref y, Lang.T("label.ping"), c, PingText(ms), float.IsNaN(ms) ? brDim : ms >= 150 ? brHot : ms >= 80 ? brWarn : brValue, null, null);
+                if (Opt(id, "host")) Small(g, ref y, PingHostText(), "");
+                if (Opt(id, "graph")) { y += 3 * s; Graph(g, x, y, w, gh, hPing, Math.Max(50f, hPing.Max()), c, null, Color.Empty); y += gh; }
+                return sgap;
+            }
+            case "battery":
+            {
+                int pct = Battery.Percent; bool low = !Battery.OnAC && pct >= 0 && pct <= 20;
+                Header(g, ref y, Lang.T("label.battery"), c, pct >= 0 ? Pct(pct) : "\u2014", low ? (pct <= 10 ? brHot : brWarn) : brValue, null, null);
+                bool bTime = Opt(id, "time"), bPow = Opt(id, "power");
+                if (bTime || bPow) Small(g, ref y, bTime ? BatteryText() : "", bPow && !float.IsNaN(Battery.Watts) ? Lang.F("unit.watts", N(Math.Abs(Battery.Watts), "0.0")) : "");
+                if (Opt(id, "bar")) { y += 5 * s; Bar(g, x, y, w, 5 * s, pct / 100f, low ? cHot : c); y += 5 * s; return sgap + s; }
+                return sgap;
+            }
+            case "media":
+            {
+                float top = y;
+                Header(g, ref y, Lang.T("label.media"), c, null, null, null, null);
+                if (Opt(id, "controls")) MediaButtons(g, top);
+                Txt(g, Fit(g, NowPlaying.Has ? NowPlaying.Title : Lang.T("media.none"), fValue, w), fValue, NowPlaying.Has ? brValue : brDim, pad, y, sf);
+                y += hdrH;
+                string sub = NowPlaying.Has ? NowPlaying.Artist : "";
+                if (NowPlaying.Has && Opt(id, "app") && NowPlaying.App != "") sub = sub == "" ? NowPlaying.App : sub + "  \u00B7  " + NowPlaying.App;
+                Txt(g, Fit(g, sub, fSmall, w), fSmall, brDim, pad, y, sf);
+                y += smallH;
+                return sgap;
             }
         }
         var gpu = GpuById(id); if (gpu == null) return 0;
@@ -954,11 +1066,12 @@ sealed class WidgetForm : Form
     float MiniLayout(Graphics g, bool draw)
     {
         float x = pad * 0.9f, y = pad * 0.6f; bool any = false;
-        string tTemp = "100\u00B0C";
+        string tTemp = fahrenheit ? "212\u00B0F" : "100\u00B0C";
         foreach (var id in Sections())
         {
             if (!IsShown(id, true)) continue;
-            Color c = ColorOf(id);
+            Color c = Shade(ColorOf(id));
+            float x0 = x;
             switch (id)
             {
                 case "cpu":
@@ -972,8 +1085,8 @@ sealed class WidgetForm : Form
                 case "net":
                 {
                     bool upOn = Opt(id, "up");
-                    string wide = Lang.F("unit.mbps", "999");
-                    Seg(g, draw, ref x, y, ref any, Lang.T("label.net"), c, "\u2193 " + Rate(down), brValue, "\u2193 " + wide, upOn ? "\u2191 " + Rate(up) : null, brLabel, upOn ? "\u2191 " + wide : null);
+                    string wide = netBits ? Lang.F("unit.mbits", "999") : Lang.F("unit.mbps", "999");
+                    Seg(g, draw, ref x, y, ref any, Lang.T("label.net"), c, "\u2193 " + RateNet(down), brValue, "\u2193 " + wide, upOn ? "\u2191 " + RateNet(up) : null, brLabel, upOn ? "\u2191 " + wide : null);
                     break;
                 }
                 case "disk":
@@ -983,6 +1096,17 @@ sealed class WidgetForm : Form
                     else Seg(g, draw, ref x, y, ref any, Lang.T("label.disk"), c, Lang.F("disk.read", Rate(diskR)), brValue, Lang.F("disk.read", Lang.F("unit.mbps", "999")),
                              Lang.F("disk.write", Rate(diskW)), brValue, Lang.F("disk.write", Lang.F("unit.mbps", "999")));
                     break;
+                case "ping": Seg(g, draw, ref x, y, ref any, Lang.T("label.ping"), c, PingText(pinger.Ms), brValue, Lang.F("unit.ms", "999"), null, null, null); break;
+                case "battery": Seg(g, draw, ref x, y, ref any, Lang.T("label.battery"), c, Battery.Percent >= 0 ? Pct(Battery.Percent) : "\u2014", brValue, "100%", null, null, null); break;
+                case "media":
+                {
+                    if (any) x += 14 * s; any = true;
+                    if (draw) using (var b = new SolidBrush(c)) g.FillEllipse(b, x, y + 5.5f * s, 6 * s, 6 * s);
+                    x += 11 * s; float mw = 150 * s;
+                    if (draw) Txt(g, Fit(g, NowPlaying.Has ? NowPlaying.Title : Lang.T("media.none"), fValue, mw), fValue, NowPlaying.Has ? brValue : brDim, x, y, sf);
+                    x += mw;
+                    break;
+                }
                 default:
                 {
                     var gp = GpuById(id); if (gp == null) break;
@@ -992,6 +1116,7 @@ sealed class WidgetForm : Form
                     break;
                 }
             }
+            if (x > x0) sectionRects[id] = new RectangleF(x0, 0, x - x0 + 7 * s, H);
         }
         return x;
     }
@@ -1044,7 +1169,7 @@ sealed class WidgetForm : Form
     {
         using (var bg = Round(new RectangleF(x, y, w, h), 4 * s))
         {
-            using (var br = new SolidBrush(Color.FromArgb(14, 255, 255, 255))) g.FillPath(br, bg);
+            using (var br = new SolidBrush(InkA(lightBg ? 10 : 14))) g.FillPath(br, bg);
             var saved = g.Clip; g.SetClip(bg, CombineMode.Intersect);
             Series(g, x, y, w, h, a, max, ca, true);
             if (b != null) Series(g, x, y, w, h, b, max, cb, false);
@@ -1062,7 +1187,14 @@ sealed class WidgetForm : Form
             float v = Math.Max(0, Math.Min(1, r[k] / max));
             pts[k] = new PointF(x + w - (n - 1 - k) * step, y + h - 1 - v * (h - 2));
         }
-        if (fill)
+        if (fill && graphStyle == 2) // bars
+        {
+            float bw = Math.Max(1f, step * 0.7f);
+            using (var b = new SolidBrush(Color.FromArgb(210, c)))
+                for (int k = 0; k < n; k++) if (pts[k].Y < y + h - 1) g.FillRectangle(b, pts[k].X - bw / 2, pts[k].Y, bw, y + h - pts[k].Y);
+            return;
+        }
+        if (fill && graphStyle == 0) // filled area; graphStyle 1 = line only
         {
             var poly = new PointF[n + 2]; Array.Copy(pts, poly, n);
             poly[n] = new PointF(pts[n - 1].X, y + h); poly[n + 1] = new PointF(pts[0].X, y + h);
@@ -1074,7 +1206,7 @@ sealed class WidgetForm : Form
     void Bar(Graphics g, float x, float y, float w, float h, float frac, Color c)
     {
         frac = Math.Max(0, Math.Min(1, frac));
-        using (var p = Round(new RectangleF(x, y, w, h), h / 2)) using (var b = new SolidBrush(Color.FromArgb(26, 255, 255, 255))) g.FillPath(b, p);
+        using (var p = Round(new RectangleF(x, y, w, h), h / 2)) using (var b = new SolidBrush(InkA(26))) g.FillPath(b, p);
         if (frac > 0)
             using (var p = Round(new RectangleF(x, y, Math.Max(h, w * frac), h), h / 2)) using (var b = new SolidBrush(c)) g.FillPath(b, p);
     }
@@ -1091,7 +1223,74 @@ sealed class WidgetForm : Form
     // Shown numbers follow the Windows regional format; the settings file keeps using CI.
     static string N(float v, string fmt) { return v.ToString(fmt, Lang.Num); }
     static string Pct(float v) { return N(v, "0") + "%"; }
-    static string TempText(float t) { return float.IsNaN(t) ? null : N(t, "0") + "°C"; }
+    string TempText(float t) { return float.IsNaN(t) ? null : fahrenheit ? N(t * 9 / 5 + 32, "0") + "°F" : N(t, "0") + "°C"; }
+    internal string TempLabel(int celsius) { return TempText(celsius); }
+    Color InkA(int a) { return Color.FromArgb(a, ink); }
+    // Section colours are pastels made for a dark panel; on the light panel they're deepened to stay readable.
+    Color Shade(Color c) { return !lightBg ? c : Color.FromArgb((int)(c.R * 0.62), (int)(c.G * 0.62), (int)(c.B * 0.62)); }
+
+    // Network speed in bytes (MB/s, like Task Manager) or bits (Mb/s, like internet plans and speed tests).
+    string RateNet(double b)
+    {
+        if (!netBits) return Rate(b);
+        double v = b * 8;
+        if (v < 1000) return Lang.F("unit.bits", v.ToString("0", Lang.Num));
+        if (v < 1e6) return Lang.F("unit.kbits", (v / 1e3).ToString(v < 1e4 ? "0.0" : "0", Lang.Num));
+        return Lang.F("unit.mbits", (v / 1e6).ToString(v < 1e7 ? "0.0" : "0", Lang.Num));
+    }
+
+    static string PingText(float ms) { return float.IsNaN(ms) ? Lang.T("ping.timeout") : Lang.F("unit.ms", ms < 1 ? "<1" : N(ms, "0")); }
+    string PingHostText() { return pinger.Host == "router" ? Lang.T("ping.router") : pinger.Host; }
+
+    static string BatteryText()
+    {
+        if (Battery.Charging) return Lang.T("battery.charging");
+        if (Battery.OnAC) return Lang.T(Battery.Percent >= 99 ? "battery.full" : "battery.plugged");
+        if (Battery.SecondsLeft > 0) return Lang.F("battery.left", Battery.SecondsLeft / 3600, Battery.SecondsLeft % 3600 / 60);
+        return Lang.T("battery.onbattery");
+    }
+
+    // Cuts text to fit, ending in "…".
+    string Fit(Graphics g, string t, Font f, float width)
+    {
+        if (string.IsNullOrEmpty(t)) return "";
+        if (g.MeasureString(t, f, PointF.Empty, sf).Width <= width) return t;
+        int lo = 0, hi = t.Length;
+        while (lo < hi) { int mid = (lo + hi + 1) / 2; if (g.MeasureString(t.Substring(0, mid) + "\u2026", f, PointF.Empty, sf).Width <= width) lo = mid; else hi = mid - 1; }
+        return t.Substring(0, lo).TrimEnd() + "\u2026";
+    }
+
+    // ---- now playing: previous / play-pause / next, drawn at the right of the section's header row
+    readonly List<RectangleF> mediaBtns = new List<RectangleF>();
+    void MediaButtons(Graphics g, float top)
+    {
+        float bs = 18 * s, gap = 4 * s, cy = top + 8.5f * s, right = W - pad + 3 * s, a = 4.2f * s;
+        var rects = new RectangleF[3];
+        for (int i = 2; i >= 0; i--) { rects[i] = new RectangleF(right - bs, cy - bs / 2, bs, bs); right -= bs + gap; }
+        mediaBtns.AddRange(rects);
+        using (var b = new SolidBrush(brValue.Color))
+            for (int i = 0; i < 3; i++)
+            {
+                float cx = rects[i].X + bs / 2;
+                if (i == 1)
+                {
+                    if (NowPlaying.Playing) { g.FillRectangle(b, cx - a * 0.75f, cy - a * 0.9f, a * 0.55f, a * 1.8f); g.FillRectangle(b, cx + a * 0.2f, cy - a * 0.9f, a * 0.55f, a * 1.8f); }
+                    else g.FillPolygon(b, new[] { new PointF(cx - a * 0.6f, cy - a), new PointF(cx + a * 0.9f, cy), new PointF(cx - a * 0.6f, cy + a) });
+                    continue;
+                }
+                float dir = i == 0 ? -1 : 1, bw = 1.6f * s;
+                g.FillPolygon(b, new[] { new PointF(cx - dir * a * 0.6f, cy - a * 0.85f), new PointF(cx + dir * a * 0.5f, cy), new PointF(cx - dir * a * 0.6f, cy + a * 0.85f) });
+                g.FillRectangle(b, dir > 0 ? cx + a * 0.5f : cx - a * 0.5f - bw, cy - a * 0.85f, bw, a * 1.7f);
+            }
+    }
+
+    int MediaButtonAt(Point screen)
+    {
+        if (mediaBtns.Count == 0 || !IsHandleCreated) return -1;
+        var b = Body; var p = new PointF(screen.X - b.X, screen.Y - b.Y);
+        for (int i = 0; i < mediaBtns.Count; i++) if (mediaBtns[i].Contains(p)) return i;
+        return -1;
+    }
     static string GpuLabel(Gpu g) { return Lang.T(g.Integrated ? "label.igpu" : "label.gpu") + (g.Number > 0 ? g.Number.ToString(CI) : ""); }
     Brush TempBrush(float t) { return t >= 90 ? brHot : t >= 80 ? brWarn : brValue; }
     static string Rate(double b)
@@ -1105,9 +1304,20 @@ sealed class WidgetForm : Form
     protected override void WndProc(ref Message m)
     {
         if (m.Msg == WM_SHOWME && WM_SHOWME != 0) { if (hidden) SetHidden(false); return; }
+        if (m.Msg == 0x201 /*WM_LBUTTONDOWN*/ || m.Msg == WM_LBUTTONDBLCLK)
+        {
+            int btn = MediaButtonAt(Cursor.Position);
+            if (btn >= 0) { NowPlaying.Command(btn); return; }
+        }
+        if (m.Msg == 0xA0 /*WM_NCMOUSEMOVE*/ || m.Msg == 0x200 /*WM_MOUSEMOVE*/) StartHover();
         switch (m.Msg)
         {
-            case WM_NCHITTEST: m.Result = (IntPtr)(locked ? 1 /*HTCLIENT*/ : 2 /*HTCAPTION*/); return;
+            // Media buttons are clickable; everywhere else the panel drags (unless locked).
+            case WM_NCHITTEST: m.Result = (IntPtr)(locked || MediaButtonAt(Cursor.Position) >= 0 ? 1 /*HTCLIENT*/ : 2 /*HTCAPTION*/); return;
+            case 0x312: // WM_HOTKEY
+                if (m.WParam.ToInt64() == 1) SetHidden(!hidden);
+                else if (m.WParam.ToInt64() == 2) { miniPref = !miniPref; Relayout(); SaveSettings(); }
+                return;
             case WM_MOUSEACTIVATE: m.Result = (IntPtr)3; /*MA_NOACTIVATE*/ return;
             case WM_NCRBUTTONDOWN: return;
             case WM_NCRBUTTONUP:
@@ -1207,12 +1417,15 @@ sealed class WidgetForm : Form
     // Keeps the widget visible after Win+D ("show desktop") and back at desktop level afterwards.
     void OnForeground(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
     {
+        CheckFullscreen();
         if (onTop) { KeepOnTop(); return; }
         var sb = new StringBuilder(32); GetClassName(hwnd, sb, sb.Capacity);
         string cls = sb.ToString();
         bool desk = cls == "WorkerW" || cls == "Progman";
         if (desk && !desktopRaised) { if (DesktopIsAboveUs()) RaiseOverDesktop(); }
         else if (!desk && desktopRaised) { desktopRaised = false; SendToDesktopLevel(); }
+        // Drawing was paused while covered: catch up as soon as it can be seen again.
+        if (stale && !hidden && !fsHiddenNow && !HiddenByFullscreen() && !Covered()) { stale = false; Render(); }
     }
 
     // Games often make their own window topmost on start; re-claim the top (not while our menu is open).
@@ -1262,7 +1475,8 @@ sealed class WidgetForm : Form
     readonly HashSet<string> hiddenFull = new HashSet<string>(), hiddenMini = new HashSet<string>(), detailsOff = new HashSet<string>();
     readonly Dictionary<string, Color> colors = new Dictionary<string, Color>();
     bool compact, hasHide, hasMiniHide, legacyHideGpus, legacyHideGpusMini; string legacyShow, legacyFps;
-    static readonly string[] BaseSections = { "cpu", "fps", "ram", "net", "disk" };
+    static readonly string[] BaseSections = { "cpu", "fps", "ram", "net", "ping", "disk", "battery", "media" };
+    readonly HashSet<string> known = new HashSet<string>(); // sections this settings file has seen
     static readonly Color[] GpuPalette = { Color.FromArgb(0x81, 0xC7, 0x84), Color.FromArgb(0x4D, 0xB6, 0xAC), Color.FromArgb(0xAE, 0xD5, 0x81), Color.FromArgb(0x64, 0xB5, 0xF6) };
     SettingsWindow settings;
 
@@ -1270,7 +1484,7 @@ sealed class WidgetForm : Form
     {
         var all = new List<string> { "cpu" };
         foreach (var g in gpus) all.Add("gpu:" + g.Key);
-        all.AddRange(new[] { "fps", "ram", "net", "disk" });
+        all.AddRange(new[] { "fps", "ram", "net", "ping", "disk", "battery", "media" });
         order = order.FindAll(id => id.StartsWith("gpu:") || Array.IndexOf(BaseSections, id) >= 0);
         for (int i = 0; i < all.Count; i++)
         {
@@ -1284,6 +1498,13 @@ sealed class WidgetForm : Form
             if (legacyHideGpusMini) hiddenMini.Add("gpu:" + g.Key);
         }
         legacyHideGpus = legacyHideGpusMini = false;
+        // Sections added later start hidden where they'd surprise: ping and now playing everywhere, all of them in mini mode.
+        foreach (var id in new[] { "ping", "battery", "media" })
+        {
+            if (known.Contains(id)) continue;
+            known.Add(id); hiddenMini.Add(id);
+            if (id != "battery") hiddenFull.Add(id);
+        }
         // never end up with an empty widget
         foreach (var set in new[] { hiddenFull, hiddenMini })
         {
@@ -1293,7 +1514,7 @@ sealed class WidgetForm : Form
     }
 
     internal IEnumerable<string> Sections() { foreach (var id in order) if (Available(id)) yield return id; }
-    bool Available(string id) { return !id.StartsWith("gpu:") || GpuById(id) != null; }
+    bool Available(string id) { return id == "battery" ? Battery.Present : !id.StartsWith("gpu:") || GpuById(id) != null; }
     Gpu GpuById(string id) { foreach (var g in gpus) if ("gpu:" + g.Key == id) return g; return null; }
     bool IsLive(string id) { return Available(id) && IsShown(id, mini); }
 
@@ -1336,6 +1557,9 @@ sealed class WidgetForm : Form
             case "ram": keys = new[] { "bar" }; break;
             case "net": keys = new[] { "up", "graph" }; break;
             case "disk": keys = new[] { "rw", "free" }; break;
+            case "ping": keys = new[] { "host", "graph" }; break;
+            case "battery": keys = new[] { "time", "power", "bar" }; break;
+            case "media": keys = new[] { "app", "controls" }; break;
             default:
             {
                 var g = GpuById(id); var l = new List<string>();
@@ -1358,7 +1582,8 @@ sealed class WidgetForm : Form
     internal Color ColorOf(string key) { Color c; return colors.TryGetValue(key, out c) ? c : DefaultColor(key); }
     Color DefaultColor(string key)
     {
-        switch (key) { case "cpu": return cCpu; case "fps": return cFps; case "ram": return cRam; case "net": return cDown; case "net.up": return cUp; case "disk": return cDisk; }
+        switch (key) { case "cpu": return cCpu; case "fps": return cFps; case "ram": return cRam; case "net": return cDown; case "net.up": return cUp; case "disk": return cDisk;
+                     case "ping": return cPing; case "battery": return cBat; case "media": return cMedia; }
         int i = gpus.FindIndex(g => "gpu:" + g.Key == key);
         return GpuPalette[Math.Max(0, i) % GpuPalette.Length];
     }
@@ -1384,13 +1609,214 @@ sealed class WidgetForm : Form
     }
 
     internal bool Compact { get { return compact; } set { compact = value; LayoutChanged(); } }
-    internal bool AccentBackground { get { return accentBg; } set { SetAccentBg(value); } }
+    internal int Theme { get { return lightBg ? 2 : accentBg ? 1 : 0; } set { SetTheme(value); } }
+    internal int GraphStyle { get { return graphStyle; } set { graphStyle = value; Render(); SaveSettings(); } }
+    internal int IntervalMs { get { return intervalMs; } set { intervalMs = value; timer.Interval = value; ResizeHistory(); SaveSettings(); } }
+    internal int GraphSeconds { get { return graphSec; } set { graphSec = value; ResizeHistory(); Render(); SaveSettings(); } }
+    internal bool Fahrenheit { get { return fahrenheit; } set { fahrenheit = value; LayoutChanged(); } }
+    internal bool NetBits { get { return netBits; } set { netBits = value; LayoutChanged(); } }
+    internal bool Startup { get { if (startupCache == null) startupCache = IsStartup(); return startupCache.Value; } set { SetStartup(value); startupCache = IsStartup(); } }
+    internal bool CheckUpdates { get { return checkUpdates; } set { checkUpdates = value; SaveSettings(); if (value) CheckForUpdate(); } }
+    internal bool Hotkeys { get { return hotkeys; } set { hotkeys = value; ApplyHotkeys(); SaveSettings(); } }
+    internal bool HotkeysFailed { get { return hotkeys && hotkeyFailed; } }
+    internal bool HoverApps { get { return hoverApps; } set { hoverApps = value; if (!value) HidePopup(); SaveSettings(); } }
+    internal int FullscreenMode { get { return fsMode; } set { fsMode = value; fsActive = false; fsOverride = false; CheckFullscreen(); Relayout(); SaveSettings(); } }
+    internal string PingHost { get { return pinger.Host; } set { pinger.Host = value; pinger.Ms = float.NaN; hPing = new Ring(HistoryCap); Render(); SaveSettings(); } }
+    internal bool AlertOn(int i) { return alerts[i].On; }
+    internal int AlertAt(int i) { return alerts[i].At; }
+    internal void SetAlert(int i, bool on, int at) { alerts[i].On = on; alerts[i].At = at; alerts[i].Since = DateTime.MinValue; SaveSettings(); }
+    bool? startupCache;
+
+    int intervalMs = 1000, graphSec = 60, graphStyle; bool fahrenheit, netBits;
+    int HistoryCap { get { return Math.Max(10, graphSec * 1000 / intervalMs); } }
+
+    // Graphs keep graphSec seconds of samples; changing the interval or length keeps the newest ones.
+    void ResizeHistory()
+    {
+        int cap = HistoryCap;
+        hCpu = hCpu.Resized(cap); hDown = hDown.Resized(cap); hUp = hUp.Resized(cap); hFps = hFps.Resized(cap); hPing = hPing.Resized(cap);
+        foreach (var g in gpus) g.History = g.History.Resized(cap);
+    }
+
+    // ---- keyboard shortcuts: Ctrl+Alt+W hides/shows the widget, Ctrl+Alt+M switches mini mode (from any app)
+    [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr hwnd, int id, uint mods, uint vk);
+    [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr hwnd, int id);
+    bool hotkeys = true, hotkeyFailed;
+    void ApplyHotkeys()
+    {
+        if (!IsHandleCreated) return;
+        UnregisterHotKey(Handle, 1); UnregisterHotKey(Handle, 2); hotkeyFailed = false;
+        if (!hotkeys) return;
+        const uint mods = 0x1 /*ALT*/ | 0x2 /*CONTROL*/ | 0x4000 /*NOREPEAT*/;
+        bool a = RegisterHotKey(Handle, 1, mods, 'W'), b = RegisterHotKey(Handle, 2, mods, 'M');
+        hotkeyFailed = !a || !b;
+    }
+
+    // ---- alerts: a notification when something stays too hot or too full for a while
+    sealed class Alert { public bool On = true; public int At; public DateTime Since = DateTime.MinValue, Last = DateTime.MinValue; }
+    readonly Alert[] alerts = { new Alert { At = 95 }, new Alert { At = 90 }, new Alert { At = 95 }, new Alert { At = 5 } }; // CPU °C, GPU °C, RAM %, disk free %
+    string balloonUrl; bool balloonTaskMgr;
+
+    void CheckAlerts()
+    {
+        if (tray == null) return;
+        Raise(alerts[0], !float.IsNaN(cpuTemp) && cpuTemp >= alerts[0].At, Lang.T("alert.cpu.title"), Lang.F("alert.temp.text", TempText(cpuTemp)), true, 30);
+        Gpu hot = null;
+        foreach (var g in gpus) if (!g.Idle && !float.IsNaN(g.Temp) && g.Temp >= alerts[1].At && (hot == null || g.Temp > hot.Temp)) hot = g;
+        Raise(alerts[1], hot != null, hot == null ? "" : Lang.F("alert.gpu.title", GpuLabel(hot) + " \u00B7 " + hot.Name), hot == null ? "" : Lang.F("alert.temp.text", TempText(hot.Temp)), true, 30);
+        float ramPct = ramTotal > 0 ? ramUsed * 100 / ramTotal : 0;
+        Raise(alerts[2], ramPct >= alerts[2].At, Lang.T("alert.ram.title"), Lang.F("alert.ram.text", N(ramPct, "0")), true, 30);
+        DriveStat? full = null;
+        foreach (var d in drives) if (d.Total > 0 && d.Free * 100 / d.Total < alerts[3].At) { full = d; break; }
+        Raise(alerts[3], full != null, full == null ? "" : Lang.F("alert.disk.title", full.Value.Name), full == null ? "" : Lang.F("alert.disk.text", N((float)(full.Value.Free / GB), "0.0")), false, 360);
+    }
+
+    // Fires after the condition has held for 15 s, then stays quiet for the cooldown.
+    void Raise(Alert a, bool cond, string title, string text, bool taskMgr, int cooldownMin)
+    {
+        var now = DateTime.UtcNow;
+        if (!a.On || !cond) { a.Since = DateTime.MinValue; return; }
+        if (a.Since == DateTime.MinValue) a.Since = now;
+        if ((now - a.Since).TotalSeconds < 15 || (now - a.Last).TotalMinutes < cooldownMin) return;
+        a.Last = now; balloonUrl = null; balloonTaskMgr = taskMgr;
+        tray.ShowBalloonTip(8000, title, text, ToolTipIcon.Warning);
+    }
+
+    string AlertsText()
+    {
+        var l = new List<string>(); foreach (var a in alerts) l.Add((a.On ? "1" : "0") + ":" + a.At.ToString(CI));
+        return string.Join(",", l);
+    }
+
+    // ---- busiest apps: pointing at CPU or RAM opens a small list next to the widget
+    readonly System.Windows.Forms.Timer hoverTimer = new System.Windows.Forms.Timer { Interval = 100 };
+    readonly Dictionary<string, RectangleF> sectionRects = new Dictionary<string, RectangleF>();
+    bool hoverApps = true; string hoverId; int hoverMs; AppsPopup popup; TopApps topApps;
+
+    void StartHover() { if (hoverApps && !hoverTimer.Enabled) { hoverId = null; hoverMs = 0; hoverTimer.Start(); } }
+
+    void HoverStep()
+    {
+        Point c = Cursor.Position; var b = Body;
+        if (!b.Contains(c)) { hoverTimer.Stop(); hoverId = null; HidePopup(); return; }
+        bool usable = hoverApps && !inMove && !hidden && !(menu != null && menu.Visible) && !(PassThrough && !interactive);
+        string id = null;
+        if (usable)
+            foreach (var kv in sectionRects)
+                if ((kv.Key == "cpu" || kv.Key == "ram") && kv.Value.Contains(c.X - b.X, c.Y - b.Y)) { id = kv.Key; break; }
+        if (id != hoverId) { hoverId = id; hoverMs = 0; HidePopup(); }
+        if (id == null) return;
+        hoverMs += hoverTimer.Interval;
+        int t = hoverMs - 450; // wait a moment, so passing over doesn't flash a popup
+        if (t < 0) return;
+        if (t < hoverTimer.Interval || t % 1000 < hoverTimer.Interval)
+        {
+            if (topApps == null) topApps = new TopApps();
+            topApps.Sample(5);
+            ShowPopup(id);
+        }
+    }
+
+    void ShowPopup(string id)
+    {
+        if (popup == null || popup.IsDisposed) popup = new AppsPopup(dpi);
+        bool isCpu = id == "cpu";
+        var list = isCpu ? topApps.Cpu : topApps.Mem;
+        var rows = new List<string[]>(); var shares = new List<float>();
+        if (!isCpu || topApps.HasCpu)
+        {
+            double max = 0; foreach (var kv in list) max = Math.Max(max, kv.Value);
+            foreach (var kv in list)
+            {
+                double v = kv.Value;
+                string val = isCpu ? N((float)v, v < 10 ? "0.0" : "0") + "%"
+                    : v >= GB ? Lang.F("unit.gb", N((float)(v / GB), "0.0")) : Lang.F("unit.mb", N((float)(v / 1048576), "0"));
+                rows.Add(new[] { kv.Key, val }); shares.Add(max > 0 ? (float)(v / max) : 0);
+            }
+        }
+        popup.SetData(Lang.T(isCpu ? "apps.cpu" : "apps.ram"), ColorOf(id), rows, shares);
+        var b = Body; var r = sectionRects[id]; var wa = Screen.FromRectangle(b).WorkingArea; int gap = (int)Math.Round(8 * dpi);
+        int x, y;
+        if (mini)
+        {
+            x = b.Left + (int)r.Left; y = b.Bottom + gap;
+            if (y + popup.Height > wa.Bottom) y = b.Top - gap - popup.Height;
+        }
+        else
+        {
+            x = b.Right + gap; if (x + popup.Width > wa.Right) x = b.Left - gap - popup.Width;
+            y = b.Top + (int)Math.Max(0, r.Top);
+        }
+        x = Math.Max(wa.Left, Math.Min(x, wa.Right - popup.Width)); y = Math.Max(wa.Top, Math.Min(y, wa.Bottom - popup.Height));
+        popup.Location = new Point(x, y);
+        if (!popup.Visible) popup.Show();
+    }
+
+    void HidePopup()
+    {
+        if (popup != null && !popup.IsDisposed && popup.Visible) popup.Hide();
+        if (topApps != null) { topApps.Dispose(); topApps = null; }
+    }
+
+    // ---- settings file: export to a file, or import one (the widget restarts to apply it)
+    bool skipSave;
+    internal void ExportSettings(IWin32Window owner)
+    {
+        using (var d = new SaveFileDialog { Filter = Lang.T("settings.file") + " (*.ini)|*.ini", FileName = "SysWidget.ini", Title = Lang.T("settings.export").TrimEnd('\u2026', '.') })
+        {
+            if (d.ShowDialog(owner) != DialogResult.OK) return;
+            SaveSettings();
+            try { File.Copy(iniPath, d.FileName, true); }
+            catch (Exception ex) { MessageBox.Show(owner, ex.Message, "SysWidget", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+    }
+
+    internal void ImportSettings(IWin32Window owner)
+    {
+        using (var d = new OpenFileDialog { Filter = Lang.T("settings.file") + " (*.ini)|*.ini", Title = Lang.T("settings.import").TrimEnd('\u2026', '.') })
+        {
+            if (d.ShowDialog(owner) != DialogResult.OK) return;
+            string[] lines;
+            try { lines = File.ReadAllLines(d.FileName); }
+            catch (Exception ex) { MessageBox.Show(owner, ex.Message, "SysWidget", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+            int good = 0; foreach (var l in lines) if (Regex.IsMatch(l, "^[a-z]+=")) good++;
+            if (good < 3 || lines.Length > 200) { MessageBox.Show(owner, Lang.T("settings.import.bad"), "SysWidget", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            try { File.WriteAllLines(iniPath, lines); }
+            catch (Exception ex) { MessageBox.Show(owner, ex.Message, "SysWidget", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+            skipSave = true;
+            try { Process.Start(new ProcessStartInfo(Application.ExecutablePath, "--restart") { UseShellExecute = false }); } catch { }
+            Close();
+        }
+    }
+
+    // ---- How to use (also shown once on first start)
+    bool tipsSeen; TipsWindow tips;
+    internal void ShowTips()
+    {
+        if (!tipsSeen) { tipsSeen = true; SaveSettings(); }
+        if (tips == null || tips.IsDisposed)
+        {
+            tips = new TipsWindow(dpi);
+            try { tips.Icon = AppIcon(new Size(32, 32)); } catch { }
+            var wa = Screen.FromRectangle(Body).WorkingArea;
+            tips.Location = new Point(wa.Left + (wa.Width - tips.Width) / 2, wa.Top + (wa.Height - tips.Height) / 2);
+            tips.Show();
+        }
+        if (tips.WindowState == FormWindowState.Minimized) tips.WindowState = FormWindowState.Normal;
+        tips.Activate();
+    }
+
+    internal void ShowInput(IWin32Window owner, string title, string prompt, string value, Action<string> done)
+    {
+        string v = InputBox.Ask(owner, title, prompt, value, dpi);
+        if (v != null) done(v);
+    }
     internal int SizePercent { get { return (int)Math.Round(scale * 100); } set { scale = value / 100f; ApplyScale(); LayoutChanged(); } }
     internal int OpacityPercent { get { return opacity; } set { opacity = value; Render(); SaveSettings(); } }
 
     internal void ResetLayout()
     {
-        hiddenFull.Clear(); hiddenMini.Clear(); detailsOff.Clear(); colors.Clear(); compact = false; order.Clear();
+        hiddenFull.Clear(); hiddenMini.Clear(); detailsOff.Clear(); colors.Clear(); compact = false; order.Clear(); known.Clear();
         NormalizeLayout(); LayoutChanged();
     }
 
@@ -1404,6 +1830,7 @@ sealed class WidgetForm : Form
     {
         if (settings == null || settings.IsDisposed)
         {
+            startupCache = null;
             settings = new SettingsWindow(this, dpi);
             try { settings.Icon = AppIcon(new Size(32, 32)); } catch { }
             settings.Reflow(); // final height, before placing it
@@ -1436,42 +1863,25 @@ sealed class WidgetForm : Form
         };
         miTop = new ToolStripMenuItem(Lang.T("menu.ontop"), null, delegate { SetOnTop(!onTop); SaveSettings(); });
         miLock = new ToolStripMenuItem(Lang.T("menu.lock"), null, delegate { locked = !locked; SaveSettings(); });
-        var miMini = new ToolStripMenuItem(Lang.T("menu.mini"), null, delegate { mini = !mini; Relayout(); SaveSettings(); });
+        var miMini = new ToolStripMenuItem(Lang.T("menu.mini"), null, delegate { miniPref = !miniPref; Relayout(); SaveSettings(); });
         miHide = new ToolStripMenuItem(Lang.T("menu.hide"), null, delegate { SetHidden(!hidden); });
         menu.Items.Add(miHide); menu.Items.Add(new ToolStripSeparator());
         menu.Opening += delegate { miHide.Text = Lang.T(hidden ? "menu.unhide" : "menu.hide"); };
         menu.Items.Add(miMini);
-        menu.Opening += delegate { miMini.Checked = mini; };
-        miClick = new ToolStripMenuItem(Lang.T("menu.clickthrough"), null, delegate { SetClickThrough(!clickThrough); SaveSettings(); });
-        miHover = new ToolStripMenuItem(Lang.T("menu.hidehover"), null, delegate { SetHideHover(!hideHover); SaveSettings(); });
-        miStartup = new ToolStripMenuItem(Lang.T("menu.startup"), null, delegate { SetStartup(!IsStartup()); });
-        menu.Items.Add(miTop); menu.Items.Add(miLock); menu.Items.Add(miClick); menu.Items.Add(miHover); menu.Items.Add(miStartup);
+        menu.Opening += delegate { miMini.Checked = miniPref; };
+        // What the mouse does over the widget: one choice instead of two separate switches.
+        var mouse = new ToolStripMenuItem(Lang.T("menu.mouse"));
+        var mNormal = new ToolStripMenuItem(Lang.T("menu.mouse.normal"), null, delegate { SetMouseMode(0); });
+        var mClick = new ToolStripMenuItem(Lang.T("menu.clickthrough"), null, delegate { SetMouseMode(1); });
+        var mHover = new ToolStripMenuItem(Lang.T("menu.hidehover"), null, delegate { SetMouseMode(2); });
+        mouse.DropDownItems.Add(mNormal); mouse.DropDownItems.Add(mClick); mouse.DropDownItems.Add(mHover);
+        mouse.DropDownOpening += delegate { mNormal.Checked = !clickThrough && !hideHover; mClick.Checked = clickThrough && !hideHover; mHover.Checked = hideHover; };
+        menu.Items.Add(miTop); menu.Items.Add(miLock); menu.Items.Add(mouse);
         menu.Closed += delegate { CheckInteractive(); };
         var show = new ToolStripMenuItem(Lang.T("menu.show"));
         show.DropDownItems.Add(new ToolStripMenuItem("\u2026")); // filled when opened, from the current order and mode
         show.DropDownOpening += delegate { FillShowMenu(show); };
         show.DropDown.Closing += (o, e) => { if (e.CloseReason == ToolStripDropDownCloseReason.ItemClicked) e.Cancel = true; };
-        var size = new ToolStripMenuItem(Lang.T("menu.size"));
-        foreach (int pct in new[] { 75, 90, 100, 115, 130, 150, 175 })
-        {
-            int p = pct; var it = new ToolStripMenuItem(p + "%");
-            it.Click += delegate { scale = p / 100f; ApplyScale(); Relayout(); SaveSettings(); };
-            size.DropDownItems.Add(it);
-        }
-        size.DropDownOpening += delegate { foreach (ToolStripMenuItem it in size.DropDownItems) it.Checked = it.Text == ((int)Math.Round(scale * 100)) + "%"; };
-        var op = new ToolStripMenuItem(Lang.T("menu.opacity"));
-        foreach (int pct in new[] { 100, 90, 80, 70, 60, 50, 40, 30 })
-        {
-            int p = pct; var it = new ToolStripMenuItem(p + "%");
-            it.Click += delegate { opacity = p; Render(); SaveSettings(); };
-            op.DropDownItems.Add(it);
-        }
-        op.DropDownOpening += delegate { foreach (ToolStripMenuItem it in op.DropDownItems) it.Checked = it.Text == opacity + "%"; };
-        var bgm = new ToolStripMenuItem(Lang.T("menu.background"));
-        var bgDark = new ToolStripMenuItem(Lang.T("menu.bg.dark"), null, delegate { SetAccentBg(false); });
-        var bgAccent = new ToolStripMenuItem(Lang.T("menu.bg.accent"), null, delegate { SetAccentBg(true); });
-        bgm.DropDownItems.Add(bgDark); bgm.DropDownItems.Add(bgAccent);
-        bgm.DropDownOpening += delegate { bgDark.Checked = !accentBg; bgAccent.Checked = accentBg; };
         var pos = new ToolStripMenuItem(Lang.T("menu.position"));
         string[] codes = { "TL", "TC", "TR", "-", "ML", "MC", "MR", "-", "BL", "BC", "BR" };
 
@@ -1487,18 +1897,16 @@ sealed class WidgetForm : Form
             foreach (ToolStripItem it in pos.DropDownItems) { var mi = it as ToolStripMenuItem; if (mi != null) mi.Checked = (string)mi.Tag == anchor; }
         };
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(pos); menu.Items.Add(show); menu.Items.Add(size); menu.Items.Add(op); menu.Items.Add(bgm);
+        menu.Items.Add(pos); menu.Items.Add(show);
         menu.Items.Add(new ToolStripMenuItem(Lang.T("menu.settings"), null, delegate { OpenSettings(); }));
+        menu.Items.Add(new ToolStripMenuItem(Lang.T("menu.tips"), null, delegate { ShowTips(); }));
         menu.Items.Add(new ToolStripSeparator());
-        var miChk = new ToolStripMenuItem(Lang.T("menu.updates"), null, delegate { checkUpdates = !checkUpdates; SaveSettings(); if (checkUpdates) CheckForUpdate(); });
-        menu.Opening += delegate { miChk.Checked = checkUpdates; };
-        menu.Items.Add(miChk);
         menu.Items.Add(new ToolStripMenuItem(Lang.T("menu.taskmgr"), null, delegate { OpenTaskManager(); }));
         menu.Items.Add(new ToolStripMenuItem(Lang.T("menu.exit"), null, delegate { Close(); }));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem(Lang.F("menu.about", VersionText, "Dimokat"), null, delegate { OpenUrl("https://github.com/" + Repo); }) { Name = "dim" });
         menu.Items.Add(new ToolStripMenuItem(Lang.T("menu.donate"), null, delegate { OpenUrl(DonateUrl); }));
-        menu.Opening += delegate { miTop.Checked = onTop; miLock.Checked = locked; miClick.Checked = clickThrough; miHover.Checked = hideHover; miStartup.Checked = IsStartup(); };
+        menu.Opening += delegate { miTop.Checked = onTop; miLock.Checked = locked; };
         // Submenus open toward the inside of the screen the menu is on (also when opened from the tray).
         menu.Opening += delegate
         {
@@ -1535,7 +1943,8 @@ sealed class WidgetForm : Form
 
     // ---- background: near-black, or the Windows accent colour (darkened only as far as white text needs)
     static readonly Color DarkBg = Color.FromArgb(18, 19, 22);
-    bool accentBg; Color panelBg = DarkBg;
+    static readonly Color LightBg = Color.FromArgb(243, 244, 246);
+    bool accentBg, lightBg; Color panelBg = DarkBg;
     [DllImport("dwmapi.dll")] static extern int DwmGetColorizationColor(out uint color, out bool opaque);
 
     static Color SystemAccent()
@@ -1568,15 +1977,28 @@ sealed class WidgetForm : Form
 
     void UpdatePanelColor()
     {
-        Color c = accentBg ? PanelFromAccent(SystemAccent()) : DarkBg;
+        Color c = accentBg ? PanelFromAccent(SystemAccent()) : lightBg ? LightBg : DarkBg;
         if (c.ToArgb() == panelBg.ToArgb()) return;
-        panelBg = c; MenuLook.SetBase(c, accentBg);
+        panelBg = c; MenuLook.SetBase(lightBg ? DarkBg : c, accentBg); // menus and windows stay dark with the light panel
+        UpdateInk();
         if (IsHandleCreated && !hidden) Render();
         foreach (var dd in menuDropDowns) { dd.BackColor = MenuLook.Bg; if (dd.IsHandleCreated) ApplyMenuFrame(dd); }
         if (settings != null && !settings.IsDisposed) settings.ApplyFrameColors();
     }
 
-    void SetAccentBg(bool on) { accentBg = on; UpdatePanelColor(); SaveSettings(); }
+    void SetTheme(int t) { accentBg = t == 1; lightBg = t == 2; UpdatePanelColor(); Render(); SaveSettings(); }
+
+    void UpdateInk()
+    {
+        ink = lightBg ? Color.FromArgb(24, 26, 30) : Color.White;
+        var old = new[] { brLabel, brValue, brDim, brWarn, brHot };
+        brLabel = new SolidBrush(Color.FromArgb(lightBg ? 175 : 150, ink));
+        brValue = new SolidBrush(Color.FromArgb(lightBg ? 240 : 235, ink));
+        brDim = new SolidBrush(Color.FromArgb(lightBg ? 130 : 105, ink));
+        brWarn = new SolidBrush(lightBg ? Color.FromArgb(0xD9, 0x74, 0x00) : cWarn);
+        brHot = new SolidBrush(lightBg ? Color.FromArgb(0xC6, 0x28, 0x28) : cHot);
+        foreach (var b in old) if (b != null) b.Dispose();
+    }
 
     // ---- menu look: same dark panel, accent and type as the widget; rounded on Windows 11 by DWM, by a region elsewhere
     [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
@@ -1680,13 +2102,16 @@ sealed class WidgetForm : Form
     {
         tray = new NotifyIcon { Icon = AppIcon(SystemInformation.SmallIconSize), Text = "SysWidget", ContextMenuStrip = menu };
         tray.MouseClick += (o, e) => { if (e.Button == MouseButtons.Left) SetHidden(!hidden); };
-        tray.BalloonTipClicked += delegate { if (updateUrl != null) OpenUrl(updateUrl); };
+        tray.BalloonTipClicked += delegate { if (balloonUrl != null) OpenUrl(balloonUrl); else if (balloonTaskMgr) OpenTaskManager(); };
         tray.Visible = true;
     }
 
     void SetHidden(bool h)
     {
         hidden = h;
+        if (!h && fsActive && fsMode == 2) fsOverride = true; // shown by hand during a fullscreen app: stay
+        fsHiddenNow = false;
+        if (h) HidePopup();
         if (IsHandleCreated)
         {
             if (h) ShowWindow(Handle, 0 /*SW_HIDE*/);
@@ -1749,7 +2174,7 @@ sealed class WidgetForm : Form
                     updateTag = t; updateUrl = u; if (!hidden) Render();
                     if (tray != null && notifiedTag != t)
                     {
-                        notifiedTag = t;
+                        notifiedTag = t; balloonUrl = u;
                         tray.ShowBalloonTip(8000, Lang.F("notify.update.title", t), Lang.T("notify.update.text"), ToolTipIcon.Info);
                     }
                 });
@@ -1929,9 +2354,9 @@ sealed class WidgetForm : Form
                 else if (k == "locked") locked = v == "1";
                 else if (k == "clickthrough") clickThrough = v == "1";
                 else if (k == "hidehover") hideHover = v == "1";
-                else if (k == "mini") mini = v == "1";
+                else if (k == "mini") miniPref = v == "1";
                 else if (k == "hidden") hidden = v == "1";
-                else if (k == "bg") accentBg = v == "accent";
+                else if (k == "bg") { accentBg = v == "accent"; lightBg = v == "light"; }
                 else if (k == "lang") langChoice = Regex.IsMatch(v, @"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$") ? v : "";
                 else if (k == "fps") legacyFps = v;
                 else if (k == "order") order = Split(v);
@@ -1950,6 +2375,26 @@ sealed class WidgetForm : Form
                 else if (k == "scale") { float f; if (float.TryParse(v, NumberStyles.Float, CI, out f) && f >= 0.5f && f <= 3f) scale = f; }
                 else if (k == "opacity") { if (int.TryParse(v, out n) && n >= 10 && n <= 100) opacity = n; }
                 else if (k == "show") legacyShow = v;
+                else if (k == "graph") graphStyle = v == "line" ? 1 : v == "bars" ? 2 : 0;
+                else if (k == "interval") { if (int.TryParse(v, out n) && (n == 500 || n == 1000 || n == 2000)) intervalMs = n; }
+                else if (k == "history") { if (int.TryParse(v, out n) && (n == 60 || n == 300)) graphSec = n; }
+                else if (k == "temp") fahrenheit = v == "f";
+                else if (k == "netunit") netBits = v == "bits";
+                else if (k == "ping") { if (ValidHost(v)) pinger.Host = v; }
+                else if (k == "fullscreen") fsMode = v == "mini" ? 1 : v == "hide" ? 2 : 0;
+                else if (k == "hotkeys") hotkeys = v != "0";
+                else if (k == "hoverapps") hoverApps = v != "0";
+                else if (k == "known") known.UnionWith(Split(v));
+                else if (k == "tips") tipsSeen = v == "1";
+                else if (k == "alerts")
+                {
+                    var parts = v.Split(',');
+                    for (int j = 0; j < parts.Length && j < alerts.Length; j++)
+                    {
+                        var ap = parts[j].Split(':'); int at;
+                        if (ap.Length == 2 && int.TryParse(ap[1], NumberStyles.Integer, CI, out at) && at > 0 && at < 200) { alerts[j].On = ap[0] == "1"; alerts[j].At = at; }
+                    }
+                }
             }
         }
         catch { }
@@ -1962,6 +2407,8 @@ sealed class WidgetForm : Form
         }
         if (!hasMiniHide) { hiddenMini.UnionWith(hiddenFull); legacyHideGpusMini = legacyHideGpus; }
     }
+
+    internal static bool ValidHost(string v) { return v != null && Regex.IsMatch(v, @"^[A-Za-z0-9][A-Za-z0-9.:\-]{0,252}$"); }
 
     static List<string> Split(string v)
     {
@@ -1976,10 +2423,14 @@ sealed class WidgetForm : Form
         {
             File.WriteAllLines(iniPath, new[] {
                 "x=" + (Left + M).ToString(CI), "y=" + (Top + M).ToString(CI),
-                "ontop=" + (onTop ? "1" : "0"), "locked=" + (locked ? "1" : "0"), "clickthrough=" + (clickThrough ? "1" : "0"), "hidehover=" + (hideHover ? "1" : "0"), "mini=" + (mini ? "1" : "0"), "hidden=" + (hidden ? "1" : "0"), "bg=" + (accentBg ? "accent" : "dark"), "lang=" + langChoice, "updates=" + (checkUpdates ? "1" : "0"), "anchor=" + anchor,
+                "ontop=" + (onTop ? "1" : "0"), "locked=" + (locked ? "1" : "0"), "clickthrough=" + (clickThrough ? "1" : "0"), "hidehover=" + (hideHover ? "1" : "0"), "mini=" + (miniPref ? "1" : "0"), "hidden=" + (hidden ? "1" : "0"), "bg=" + (accentBg ? "accent" : lightBg ? "light" : "dark"), "lang=" + langChoice, "updates=" + (checkUpdates ? "1" : "0"), "anchor=" + anchor,
                 "scale=" + scale.ToString(CI), "opacity=" + opacity.ToString(CI),
                 "order=" + string.Join(",", order), "hide=" + string.Join(",", hiddenFull), "minihide=" + string.Join(",", hiddenMini),
-                "off=" + string.Join(",", detailsOff), "compact=" + (compact ? "1" : "0"), "colors=" + ColorsText() });
+                "off=" + string.Join(",", detailsOff), "compact=" + (compact ? "1" : "0"), "colors=" + ColorsText(),
+                "graph=" + (graphStyle == 1 ? "line" : graphStyle == 2 ? "bars" : "area"), "interval=" + intervalMs.ToString(CI), "history=" + graphSec.ToString(CI),
+                "temp=" + (fahrenheit ? "f" : "c"), "netunit=" + (netBits ? "bits" : "bytes"), "ping=" + pinger.Host,
+                "fullscreen=" + (fsMode == 1 ? "mini" : fsMode == 2 ? "hide" : "off"), "hotkeys=" + (hotkeys ? "1" : "0"), "hoverapps=" + (hoverApps ? "1" : "0"),
+                "alerts=" + AlertsText(), "known=" + string.Join(",", known), "tips=" + (tipsSeen ? "1" : "0") });
         }
         catch { }
     }

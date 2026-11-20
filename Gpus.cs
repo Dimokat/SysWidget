@@ -26,7 +26,7 @@ sealed class Gpu
 
     public float Load, Temp = float.NaN, Power = float.NaN, MemUsed, MemTotal;
     public bool Idle;                       // a discrete GPU on battery: not queried, so it can stay asleep
-    public readonly Ring History = new Ring(60);
+    public Ring History = new Ring(60);
 
     public bool IsNvidia { get { return Vendor == 0x10DE; } }
     public bool IsAmd { get { return Vendor == 0x1002; } }

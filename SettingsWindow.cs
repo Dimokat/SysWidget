@@ -12,11 +12,11 @@ sealed class SettingsWindow : Form
 {
     readonly WidgetForm w;
     readonly float d;                        // DPI scale
-    int tab;                                 // 0 sections, 1 mini mode, 2 appearance
+    int tab;                                 // 0 sections, 1 mini mode, 2 appearance, 3 general, 4 alerts
     string colorKey;                         // colour being picked (strip open under its section)
     readonly List<Hit> hits = new List<Hit>();
     Font fText, fBold, fSmall, fHead;
-    static readonly string[] Tabs = { "settings.tab.sections", "settings.tab.mini", "settings.tab.appearance" };
+    static readonly string[] Tabs = { "settings.tab.sections", "settings.tab.mini", "settings.tab.appearance", "settings.tab.general", "settings.tab.alerts" };
     static readonly Color[] Swatches =
     {
         Color.FromArgb(0x4F, 0xC3, 0xF7), Color.FromArgb(0x64, 0xB5, 0xF6), Color.FromArgb(0x79, 0x86, 0xCB), Color.FromArgb(0xBA, 0x68, 0xC8),
@@ -37,7 +37,7 @@ sealed class SettingsWindow : Form
         ShowInTaskbar = true; StartPosition = FormStartPosition.Manual; KeyPreview = true;
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
         MakeFonts();
-        ClientSize = new Size(S(452), S(420));
+        ClientSize = new Size(S(520), S(420));
         KeyDown += (o, e) => { if (e.KeyCode == Keys.Escape) Close(); };
     }
 
@@ -159,7 +159,9 @@ sealed class SettingsWindow : Form
 
         if (tab == 0) y = SectionsTab(g, draw, x, width, y);
         else if (tab == 1) y = MiniTab(g, draw, x, width, y);
-        else y = AppearanceTab(g, draw, x, width, y);
+        else if (tab == 2) y = AppearanceTab(g, draw, x, width, y);
+        else if (tab == 3) y = GeneralTab(g, draw, x, width, y);
+        else y = AlertsTab(g, draw, x, width, y);
         return y + S(16);
     }
 
@@ -252,7 +254,8 @@ sealed class SettingsWindow : Form
     float AppearanceTab(Graphics g, bool draw, float x, float width, float y)
     {
         y = Choice(g, draw, x, width, y, Lang.T("settings.layout"), new[] { Lang.T("settings.layout.normal"), Lang.T("settings.layout.compact") }, w.Compact ? 1 : 0, i => w.Compact = i == 1);
-        y = Choice(g, draw, x, width, y, Lang.T("menu.background"), new[] { Lang.T("menu.bg.dark"), Lang.T("menu.bg.accent") }, w.AccentBackground ? 1 : 0, i => w.AccentBackground = i == 1);
+        y = Choice(g, draw, x, width, y, Lang.T("menu.background"), new[] { Lang.T("menu.bg.dark"), Lang.T("menu.bg.accent"), Lang.T("menu.bg.light") }, w.Theme, i => w.Theme = i);
+        y = Choice(g, draw, x, width, y, Lang.T("settings.graph"), new[] { Lang.T("settings.graph.area"), Lang.T("settings.graph.line"), Lang.T("settings.graph.bars") }, w.GraphStyle, i => w.GraphStyle = i);
         int[] sizes = { 75, 90, 100, 115, 130, 150, 175 };
         y = Choice(g, draw, x, width, y, Lang.T("menu.size"), Array.ConvertAll(sizes, v => v + "%"), Array.IndexOf(sizes, w.SizePercent), i => w.SizePercent = sizes[i]);
         int[] ops = { 100, 90, 80, 70, 60, 50, 40, 30 };
@@ -294,7 +297,96 @@ sealed class SettingsWindow : Form
         return y + S(30);
     }
 
+    float GeneralTab(Graphics g, bool draw, float x, float width, float y)
+    {
+        y = Toggle(g, draw, x, width, y, Lang.T("menu.startup"), w.Startup, () => w.Startup = !w.Startup);
+        y = Toggle(g, draw, x, width, y, Lang.T("menu.updates"), w.CheckUpdates, () => w.CheckUpdates = !w.CheckUpdates);
+        y = Toggle(g, draw, x, width, y, Lang.T("settings.hoverapps"), w.HoverApps, () => w.HoverApps = !w.HoverApps);
+        y = Toggle(g, draw, x, width, y, Lang.T("settings.hotkeys"), w.Hotkeys, () => w.Hotkeys = !w.Hotkeys);
+        y = Note(g, draw, x + S(30), width - S(30), y - S(4), Lang.T(w.HotkeysFailed ? "settings.hotkeys.busy" : "settings.hotkeys.note"));
+        y = Choice(g, draw, x, width, y, Lang.T("settings.fullscreen"),
+            new[] { Lang.T("settings.fullscreen.none"), Lang.T("settings.fullscreen.mini"), Lang.T("settings.fullscreen.hide") }, w.FullscreenMode, i => w.FullscreenMode = i);
+        float half = (width - S(16)) / 2, y1, y2;
+        int[] iv = { 500, 1000, 2000 };
+        y1 = Choice(g, draw, x, half, y, Lang.T("settings.interval"), Array.ConvertAll(iv, ms => Lang.F("settings.seconds", ms / 1000.0)), Array.IndexOf(iv, w.IntervalMs), i => w.IntervalMs = iv[i]);
+        y2 = Choice(g, draw, x + half + S(16), half, y, Lang.T("settings.history"), new[] { Lang.F("settings.minutes", 1), Lang.F("settings.minutes", 5) },
+            w.GraphSeconds == 300 ? 1 : 0, i => w.GraphSeconds = i == 1 ? 300 : 60);
+        y = Math.Max(y1, y2);
+        y1 = Choice(g, draw, x, half, y, Lang.T("settings.temp"), new[] { "\u00B0C", "\u00B0F" }, w.Fahrenheit ? 1 : 0, i => w.Fahrenheit = i == 1);
+        y2 = Choice(g, draw, x + half + S(16), half, y, Lang.T("settings.netunit"), new[] { Lang.F("unit.mbps", "").Trim(), Lang.F("unit.mbits", "").Trim() },
+            w.NetBits ? 1 : 0, i => w.NetBits = i == 1);
+        y = Math.Max(y1, y2);
+        string host = w.PingHost; int sel = host == "1.1.1.1" ? 0 : host == "8.8.8.8" ? 1 : host == "router" ? 2 : 3;
+        y = Choice(g, draw, x, width, y, Lang.T("settings.ping"), new[] { "Cloudflare", "Google", Lang.T("ping.router"), sel == 3 ? host : Lang.T("settings.ping.custom") }, sel, i =>
+        {
+            if (i == 0) w.PingHost = "1.1.1.1";
+            else if (i == 1) w.PingHost = "8.8.8.8";
+            else if (i == 2) w.PingHost = "router";
+            else w.ShowInput(this, Lang.T("settings.ping"), Lang.T("settings.ping.prompt"), sel == 3 ? host : "", v => { v = v.Trim(); if (WidgetForm.ValidHost(v)) w.PingHost = v; });
+        });
+        return ButtonRow(g, draw, x, width, y, new[] { Lang.T("settings.export"), Lang.T("settings.import"), Lang.T("menu.tips") },
+            new Action[] { () => w.ExportSettings(this), () => w.ImportSettings(this), () => w.ShowTips() });
+    }
+
+    float AlertsTab(Graphics g, bool draw, float x, float width, float y)
+    {
+        y = Note(g, draw, x, width, y, Lang.T("settings.alerts.note"));
+        int[] temps = { 80, 85, 90, 95 }, ram = { 85, 90, 95 }, disk = { 5, 10, 15 };
+        y = AlertRow(g, draw, x, width, y, 0, Lang.T("settings.alert.cpu"), temps, v => w.TempLabel(v));
+        y = AlertRow(g, draw, x, width, y, 1, Lang.T("settings.alert.gpu"), temps, v => w.TempLabel(v));
+        y = AlertRow(g, draw, x, width, y, 2, Lang.T("settings.alert.ram"), ram, v => v + "%");
+        y = AlertRow(g, draw, x, width, y, 3, Lang.T("settings.alert.disk"), disk, v => v + "%");
+        return y - S(16);
+    }
+
+    // A switch with its threshold underneath.
+    float AlertRow(Graphics g, bool draw, float x, float width, float y, int i, string label, int[] values, Func<int, string> fmt)
+    {
+        bool on = w.AlertOn(i); int at = w.AlertAt(i);
+        y = Toggle(g, draw, x, width, y, label, on, () => w.SetAlert(i, !on, at));
+        return Choice(g, draw, x + S(30), width - S(30), y, null, Array.ConvertAll(values, v => fmt(v)), Array.IndexOf(values, at), k => w.SetAlert(i, true, values[k]));
+    }
+
     // ------------------------------------------------------------------ pieces
+    float Toggle(Graphics g, bool draw, float x, float width, float y, string label, bool on, Action click)
+    {
+        float cy = y + S(15);
+        var row = new RectangleF(x - S(4), y, width + S(8), S(30));
+        if (draw)
+        {
+            if (Hover(row)) using (var p = Round(row, S(6))) using (var b = new SolidBrush(Color.FromArgb(8, 255, 255, 255))) g.FillPath(b, p);
+            Check(g, new RectangleF(x, cy - S(9), S(18), S(18)), on);
+            TextRenderer.DrawText(g, label, fText, Rectangle.Round(new RectangleF(x + S(30), y, width - S(30), S(30))), Ink,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+        }
+        Add(row, click, draw);
+        return y + S(32);
+    }
+
+    float ButtonRow(Graphics g, bool draw, float x, float width, float y, string[] labels, Action[] clicks)
+    {
+        float bx = x;
+        for (int i = 0; i < labels.Length; i++)
+        {
+            float bw = TextRenderer.MeasureText(labels[i], fText).Width + S(28);
+            if (bx > x && bx + bw > x + width) { bx = x; y += S(38); }
+            var r = new RectangleF(bx, y, bw, S(30));
+            if (draw)
+            {
+                using (var p = Round(r, S(6)))
+                {
+                    using (var b = new SolidBrush(Hover(r) ? Color.FromArgb(22, 255, 255, 255) : Raised)) g.FillPath(b, p);
+                    using (var pen = new Pen(Line)) g.DrawPath(pen, p);
+                }
+                Center(g, labels[i], fText, Ink, r);
+            }
+            Add(r, clicks[i], draw);
+            bx += bw + S(8);
+        }
+        return y + S(30);
+    }
+
+
     float Note(Graphics g, bool draw, float x, float width, float y, string text)
     {
         var sz = g.MeasureString(text, fSmall, (int)width);
@@ -304,8 +396,7 @@ sealed class SettingsWindow : Form
 
     float Choice(Graphics g, bool draw, float x, float width, float y, string label, string[] options, int sel, Action<int> pick)
     {
-        if (draw) Txt(g, Upper(label), fHead, Dim, x, y);
-        y += S(20);
+        if (label != null) { if (draw) Txt(g, Upper(label), fHead, Dim, x, y); y += S(20); }
         var bar = new RectangleF(x, y, width, S(32));
         if (draw) using (var p = Round(bar, S(8))) using (var b = new SolidBrush(Raised)) g.FillPath(b, p);
         float sw = width / options.Length;

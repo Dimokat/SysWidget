@@ -4,7 +4,7 @@ A tiny, native system-monitor widget for Windows. One small exe, no runtimes to 
 
 [Download](https://github.com/Dimokat/SysWidget/releases/latest) · [Support the project](https://send.monobank.ua/jar/125L2LfHgy)
 
-**CPU** load & temperature · **GPUs** (every one, integrated too) load, memory, temperature & power · **FPS** of the app in front · **RAM** · **Network** up/down · **Disks** activity & free space
+**CPU** load & temperature · **GPUs** (every one, integrated too) load, memory, temperature & power · **FPS** of the app in front · **RAM** · **Network** up/down · **Ping** · **Disks** activity & free space · **Battery** · **Now playing** with play/pause
 
 <p align="center">
   <img src="docs/widget.png" width="300" alt="SysWidget with CPU, two GPUs, FPS, RAM, network and disks">&nbsp;&nbsp;
@@ -31,16 +31,24 @@ Requires Windows 10 or 11 (uses the .NET Framework that ships with Windows). Eve
 |---|---|
 | Drag | Move it. It snaps to screen edges and docks to them. |
 | Double-click | Open Task Manager |
-| Right-click | Menu: Mini mode, Always on top, Lock position, Click-through, Hide under cursor, Start with Windows, Position, Show, Size, Opacity, Background, Settings, Check for updates |
-| Ctrl + mouse | Interact with it while Click-through or Hide under cursor is on. With Hide under cursor, the widget fades away while the mouse is over it and clicks go to whatever is underneath; holding Ctrl brings it back. |
+| Right-click | Menu: Hide widget, Mini mode, Always on top, Lock position, Mouse over the widget, Position, Show, Settings, How to use |
+| Point at CPU or RAM | A small list of the apps using the most CPU or memory |
+| Ctrl + mouse | Interact with it while it lets clicks through or hides under the cursor (*Mouse over the widget* in the menu). With *Hide under cursor*, the widget fades away while the mouse is over it and clicks go to whatever is underneath; holding Ctrl brings it back. |
+| Ctrl + Alt + W / Ctrl + Alt + M | Hide or show the widget / switch mini mode, from any app (can be turned off in Settings) |
 | Tray icon | Left-click hides/shows the widget, right-click opens the same menu, hover shows a quick summary |
 
 - **Mini mode** turns it into a single line of stats.
 - **Hide widget** (or a left-click on the tray icon) tucks it away while it keeps running in the tray. Starting SysWidget again brings it back.
-- **Background** can be the default dark panel or your Windows accent color (darkened only as much as needed to keep text readable). It follows the accent when you change it.
-- **Show** turns individual sections on and off. Hidden sections aren't polled at all.
-- **Settings** opens a window where you choose the order of the sections, their colors, what each one shows (temperature, memory, power, graph...), what mini mode shows, and a compact layout. Changes apply as you make them.
-- It checks this repo's releases for updates (about once every 6 hours) and shows a small yellow dot plus an *Update available* menu item when there is one. You can turn this off in the menu.
+- **Show** turns individual sections on and off. Hidden sections aren't polled at all. **Ping** and **Now playing** start off; turn them on here.
+- **Settings** has everything else, and changes apply as you make them:
+  - *Sections* and *Mini mode*: order, colors and what each section shows (temperature, memory, power, graph...).
+  - *Appearance*: normal or compact layout, a dark, Windows accent color or light background, filled / line / bar graphs, size, opacity, language.
+  - *General*: Start with Windows, update checks, keyboard shortcuts, what to do when a fullscreen game or video is in front (nothing, switch to mini, hide), update interval, graph length, °C or °F, network speed in MB/s or Mb/s, the ping server, and exporting or importing your settings.
+  - *Alerts*: a Windows notification when the CPU or GPU stays too hot, RAM too full or a drive nearly full.
+- **Now playing** shows what's playing in Spotify, a browser or any other player, with previous / play-pause / next buttons.
+- While a window or a fullscreen app covers the widget, it stops drawing (it keeps measuring), so it costs even less.
+- It checks this repo's releases for updates (about once every 6 hours) and shows a small yellow dot plus an *Update available* menu item when there is one. You can turn this off in Settings.
+- **How to use** in the menu shows all of this on one page. It also opens once on first start.
 
 <p align="center">
   <img src="docs/menu.png" width="280" alt="Right-click menu">&nbsp;&nbsp;
