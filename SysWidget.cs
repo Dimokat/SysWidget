@@ -298,7 +298,7 @@ sealed class Pdh : IDisposable
     public void Dispose() { if (q != IntPtr.Zero) { PdhCloseQuery(q); q = IntPtr.Zero; } }
 }
 
-sealed class WidgetForm : Form
+sealed partial class WidgetForm : Form
 {
     // ------------------------------------------------------------------ Win32
     const int WS_EX_LAYERED = 0x80000, WS_EX_TOOLWINDOW = 0x80, WS_EX_NOACTIVATE = 0x8000000, WS_EX_TRANSPARENT = 0x20;
@@ -433,6 +433,7 @@ sealed class WidgetForm : Form
         ctTimer.Tick += delegate { CheckInteractive(); };
         fadeTimer.Tick += delegate { FadeStep(); };
         hoverTimer.Tick += delegate { HoverStep(); };
+        islandAnim.Tick += delegate { IslandStep(); };
     }
 
     void ApplyScale()
@@ -448,6 +449,7 @@ sealed class WidgetForm : Form
 
     void Relayout()
     {
+        CloseIslandNow();
         Rectangle old = IsHandleCreated ? Body : Rectangle.Empty;
         ApplyScale();
         if (mini) W = MiniWidth();
@@ -470,7 +472,7 @@ sealed class WidgetForm : Form
     int M;
     bool dL, dT, dR, dB;
     Size WinSize() { return new Size(W + 2 * M, H + 2 * M); }
-    Rectangle Body { get { return new Rectangle(Left + M, Top + M, W, H); } }
+    Rectangle Body { get { return islandOpen ? islandHome : new Rectangle(Left + M, Top + M, W, H); } }
     void PlaceBody(Point p) { Location = new Point(p.X - M, p.Y - M); }
 
     void UpdateDock(Rectangle b)
@@ -489,7 +491,8 @@ sealed class WidgetForm : Form
     // a concave fillet flowing into the screen edge where only one side is docked.
     GraphicsPath PanelPath()
     {
-        float rad = 10 * s, d = rad * 2, fd = rad * 2;
+        // The island (mini mode's default look) is a pill: fully rounded ends.
+        float rad = mini && islandStyle ? (Vert ? Math.Min(14 * s, W / 2f) : Math.Max(10 * s, H / 2f)) : 10 * s, d = rad * 2, fd = Math.Min(rad, 10 * s) * 2;
         // Docked edges sit at -0.5 / W-0.5 so the outermost pixel row is fully covered (GDI+ pixel centres are integers).
         float L = dL ? -0.5f : 0.5f, T = dT ? -0.5f : 0.5f, R = W - 0.5f, B = H - 0.5f;
         var p = new GraphicsPath();
@@ -537,7 +540,7 @@ sealed class WidgetForm : Form
     {
         if (!PassThrough) { FadeTo(1f); return; }
         bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-        bool over = Body.Contains(Cursor.Position);
+        bool over = OverWidget(Cursor.Position);
         bool want = (ctrl && over) || inMove || (menu != null && menu.Visible);
         FadeTo(hideHover && over && !want ? 0f : 1f);
         if (want == interactive) return;
@@ -605,7 +608,7 @@ sealed class WidgetForm : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        timer.Stop(); ctTimer.Stop(); fadeTimer.Stop(); hoverTimer.Stop();
+        timer.Stop(); ctTimer.Stop(); fadeTimer.Stop(); hoverTimer.Stop(); islandAnim.Stop();
         if (fgHook != IntPtr.Zero) UnhookWinEvent(fgHook);
         UnregisterHotKey(Handle, 1); UnregisterHotKey(Handle, 2);
         HidePopup();
@@ -668,6 +671,13 @@ sealed class WidgetForm : Form
         UpdateTray();
         CheckAlerts();
         CheckFullscreen();
+        // In mini mode the music part is as wide as the song title: re-measure when the song changes.
+        if (mini && IsLive("media"))
+        {
+            string mt = NowPlaying.Has ? NowPlaying.Title : "";
+            if (mt != miniTitle) { miniTitle = mt; if (MiniWidth() != W) Relayout(); }
+        }
+        IslandTick();
         if (hidden || fsHiddenNow) return;
         if (!onTop && !desktopRaised && DesktopIsAboveUs()) RaiseOverDesktop();
         if (onTop) KeepOnTop();
@@ -811,6 +821,7 @@ sealed class WidgetForm : Form
     }
 
     // ---- game-aware mode: while a fullscreen app (game, video) is in front on our screen, switch to mini or hide
+    string miniTitle;
     int fsMode; bool fsActive, fsHiddenNow, fsOverride; // fsOverride: shown again by hand during that fullscreen app
     [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
@@ -838,7 +849,7 @@ sealed class WidgetForm : Form
         bool hide = fsActive && fsMode == 2 && !hidden && !fsOverride;
         if (hide == fsHiddenNow) return;
         fsHiddenNow = hide;
-        if (hide) { HidePopup(); ShowWindow(Handle, 0 /*SW_HIDE*/); }
+        if (hide) { HidePopup(); CloseIslandNow(); ShowWindow(Handle, 0 /*SW_HIDE*/); }
         else if (!hidden)
         {
             Render(); ShowWindow(Handle, 8 /*SW_SHOWNA*/);
@@ -873,6 +884,7 @@ sealed class WidgetForm : Form
     void Render(bool dock = true)
     {
         if (!IsHandleCreated || H <= 0) return;
+        if (islandOpen) { RenderIsland(); return; }
         if (dock) UpdateDock(Body);
         var ws = WinSize();
         if (canvas == null || canvas.Width != ws.Width || canvas.Height != ws.Height) { if (canvas != null) canvas.Dispose(); canvas = new Bitmap(ws.Width, ws.Height, PixelFormat.Format32bppArgb); }
@@ -946,7 +958,7 @@ sealed class WidgetForm : Form
         if (updateTag != null) // small dot: an update is available
             using (var b = new SolidBrush(cFps)) g.FillEllipse(b, W - 7.5f * s, 3 * s, 4.5f * s, 4.5f * s);
 
-        if (mini) { MiniLayout(g, true); return pad * 1.2f + 17 * s; }
+        if (mini) { if (Vert) return MiniLayoutV(g, true); MiniLayout(g, true); return pad * 1.2f + 17 * s; }
 
         float gh = (compact ? 16 : 26) * s, sgap = (compact ? 7 : 11) * s, gap = 0;
         hdrH = (compact ? 15.5f : 17) * s; smallH = (compact ? 12.5f : 14) * s;
@@ -1060,6 +1072,7 @@ sealed class WidgetForm : Form
     // ---- mini mode: one line, fixed-width slots so the strip doesn't jitter ----
     int MiniWidth()
     {
+        if (Vert) return MiniColumnWidth();
         using (var b = new Bitmap(1, 1)) using (var g = Graphics.FromImage(b)) return (int)Math.Ceiling(MiniLayout(g, false) + pad * 0.9f);
     }
 
@@ -1072,6 +1085,7 @@ sealed class WidgetForm : Form
             if (!IsShown(id, true)) continue;
             Color c = Shade(ColorOf(id));
             float x0 = x;
+            segIcon = IconKind(id); // mini mode shows the section's icon instead of a dot
             switch (id)
             {
                 case "cpu":
@@ -1101,9 +1115,11 @@ sealed class WidgetForm : Form
                 case "media":
                 {
                     if (any) x += 14 * s; any = true;
-                    if (draw) using (var b = new SolidBrush(c)) g.FillEllipse(b, x, y + 5.5f * s, 6 * s, 6 * s);
-                    x += 11 * s; float mw = 150 * s;
-                    if (draw) Txt(g, Fit(g, NowPlaying.Has ? NowPlaying.Title : Lang.T("media.none"), fValue, mw), fValue, NowPlaying.Has ? brValue : brDim, x, y, sf);
+                    if (draw) TileIcon(g, "media", x + 6.5f * s, y + 8.5f * s, 13 * s, c);
+                    x += 17 * s;
+                    string mt = NowPlaying.Has ? NowPlaying.Title : Lang.T("media.none");
+                    float mw = Math.Min(150 * s, g.MeasureString(mt, fValue, PointF.Empty, sf).Width); // as wide as the title, up to a limit
+                    if (draw) Txt(g, Fit(g, mt, fValue, mw + 1), fValue, NowPlaying.Has ? brValue : brDim, x, y, sf);
                     x += mw;
                     break;
                 }
@@ -1125,8 +1141,8 @@ sealed class WidgetForm : Form
              string v1, Brush b1, string t1, string v2, Brush b2, string t2)
     {
         if (any) x += 14 * s; any = true;
-        if (draw) using (var b = new SolidBrush(accent)) g.FillEllipse(b, x, y + 5.5f * s, 6 * s, 6 * s);
-        x += 11 * s;
+        if (segIcon != null) { if (draw) TileIcon(g, segIcon, x + 6.5f * s, y + 8.5f * s, 13 * s, accent); x += 17 * s; }
+        else { if (draw) using (var b = new SolidBrush(accent)) g.FillEllipse(b, x, y + 5.5f * s, 6 * s, 6 * s); x += 11 * s; }
         if (draw) Txt(g, label, fLabel, brLabel, x, y + 1.5f * s, sf);
         x += g.MeasureString(label, fLabel, PointF.Empty, sf).Width + 6 * s;
         x += Slot(g, draw, x, y, v1, b1, t1);
@@ -1286,6 +1302,7 @@ sealed class WidgetForm : Form
 
     int MediaButtonAt(Point screen)
     {
+        if (islandOpen) return IslandButtonAt(screen);
         if (mediaBtns.Count == 0 || !IsHandleCreated) return -1;
         var b = Body; var p = new PointF(screen.X - b.X, screen.Y - b.Y);
         for (int i = 0; i < mediaBtns.Count; i++) if (mediaBtns[i].Contains(p)) return i;
@@ -1313,10 +1330,10 @@ sealed class WidgetForm : Form
         switch (m.Msg)
         {
             // Media buttons are clickable; everywhere else the panel drags (unless locked).
-            case WM_NCHITTEST: m.Result = (IntPtr)(locked || MediaButtonAt(Cursor.Position) >= 0 ? 1 /*HTCLIENT*/ : 2 /*HTCAPTION*/); return;
+            case WM_NCHITTEST: m.Result = (IntPtr)(locked || islandOpen || MediaButtonAt(Cursor.Position) >= 0 ? 1 /*HTCLIENT*/ : 2 /*HTCAPTION*/); return;
             case 0x312: // WM_HOTKEY
                 if (m.WParam.ToInt64() == 1) SetHidden(!hidden);
-                else if (m.WParam.ToInt64() == 2) { miniPref = !miniPref; Relayout(); SaveSettings(); }
+                else if (m.WParam.ToInt64() == 2) { miniPref = !miniPref; Relayout(); AutoDirection(); SaveSettings(); }
                 return;
             case WM_MOUSEACTIVATE: m.Result = (IntPtr)3; /*MA_NOACTIVATE*/ return;
             case WM_NCRBUTTONDOWN: return;
@@ -1364,7 +1381,7 @@ sealed class WidgetForm : Form
                 if (accentBg) BeginInvoke((MethodInvoker)UpdatePanelColor);
                 break;
             case WM_ENTERSIZEMOVE: hasMoveTarget = false; inMove = true; moveStart = Location; grab = new Point(Cursor.Position.X - (Left + M), Cursor.Position.Y - (Top + M)); break;
-            case WM_EXITSIZEMOVE: inMove = false; hasMoveTarget = false; if (Location != moveStart) anchor = ""; SaveSettings(); break;
+            case WM_EXITSIZEMOVE: inMove = false; hasMoveTarget = false; if (Location != moveStart) { anchor = ""; AutoDirection(); } SaveSettings(); break;
             case WM_DISPLAYCHANGE: BeginInvoke((MethodInvoker)delegate { if (anchor != "") SnapTo(anchor); else PlaceBody(ValidPosition(Left + M, Top + M)); }); break;
         }
         base.WndProc(ref m);
@@ -1693,10 +1710,11 @@ sealed class WidgetForm : Form
     readonly Dictionary<string, RectangleF> sectionRects = new Dictionary<string, RectangleF>();
     bool hoverApps = true; string hoverId; int hoverMs; AppsPopup popup; TopApps topApps;
 
-    void StartHover() { if (hoverApps && !hoverTimer.Enabled) { hoverId = null; hoverMs = 0; hoverTimer.Start(); } }
+    void StartHover() { if ((hoverApps || IslandMode) && !hoverTimer.Enabled) { hoverId = null; hoverMs = 0; hoverTimer.Start(); } }
 
     void HoverStep()
     {
+        if (IslandMode || islandOpen) { IslandHover(); return; }
         Point c = Cursor.Position; var b = Body;
         if (!b.Contains(c)) { hoverTimer.Stop(); hoverId = null; HidePopup(); return; }
         bool usable = hoverApps && !inMove && !hidden && !(menu != null && menu.Visible) && !(PassThrough && !interactive);
@@ -1737,7 +1755,7 @@ sealed class WidgetForm : Form
         popup.SetData(Lang.T(isCpu ? "apps.cpu" : "apps.ram"), ColorOf(id), rows, shares);
         var b = Body; var r = sectionRects[id]; var wa = Screen.FromRectangle(b).WorkingArea; int gap = (int)Math.Round(8 * dpi);
         int x, y;
-        if (mini)
+        if (mini && !Vert)
         {
             x = b.Left + (int)r.Left; y = b.Bottom + gap;
             if (y + popup.Height > wa.Bottom) y = b.Top - gap - popup.Height;
@@ -1863,7 +1881,7 @@ sealed class WidgetForm : Form
         };
         miTop = new ToolStripMenuItem(Lang.T("menu.ontop"), null, delegate { SetOnTop(!onTop); SaveSettings(); });
         miLock = new ToolStripMenuItem(Lang.T("menu.lock"), null, delegate { locked = !locked; SaveSettings(); });
-        var miMini = new ToolStripMenuItem(Lang.T("menu.mini"), null, delegate { miniPref = !miniPref; Relayout(); SaveSettings(); });
+        var miMini = new ToolStripMenuItem(Lang.T("menu.mini"), null, delegate { miniPref = !miniPref; Relayout(); AutoDirection(); SaveSettings(); });
         miHide = new ToolStripMenuItem(Lang.T("menu.hide"), null, delegate { SetHidden(!hidden); });
         menu.Items.Add(miHide); menu.Items.Add(new ToolStripSeparator());
         menu.Opening += delegate { miHide.Text = Lang.T(hidden ? "menu.unhide" : "menu.hide"); };
@@ -1906,7 +1924,7 @@ sealed class WidgetForm : Form
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem(Lang.F("menu.about", VersionText, "Dimokat"), null, delegate { OpenUrl("https://github.com/" + Repo); }) { Name = "dim" });
         menu.Items.Add(new ToolStripMenuItem(Lang.T("menu.donate"), null, delegate { OpenUrl(DonateUrl); }));
-        menu.Opening += delegate { miTop.Checked = onTop; miLock.Checked = locked; };
+        menu.Opening += delegate { CloseIslandNow(); miTop.Checked = onTop; miLock.Checked = locked; };
         // Submenus open toward the inside of the screen the menu is on (also when opened from the tray).
         menu.Opening += delegate
         {
@@ -2111,7 +2129,7 @@ sealed class WidgetForm : Form
         hidden = h;
         if (!h && fsActive && fsMode == 2) fsOverride = true; // shown by hand during a fullscreen app: stay
         fsHiddenNow = false;
-        if (h) HidePopup();
+        if (h) { HidePopup(); CloseIslandNow(); }
         if (IsHandleCreated)
         {
             if (h) ShowWindow(Handle, 0 /*SW_HIDE*/);
@@ -2290,11 +2308,13 @@ sealed class WidgetForm : Form
     // Snap to one of 9 spots on the current screen: [T|M|B][L|C|R]. Stays snapped through size/mode changes.
     void SnapTo(string a)
     {
+        CloseIslandNow();
         anchor = a;
         var wa = Screen.FromRectangle(Body).WorkingArea;
         int x = a[1] == 'L' ? wa.Left : a[1] == 'R' ? wa.Right - W : wa.Left + (wa.Width - W) / 2;
         int y = a[0] == 'T' ? wa.Top : a[0] == 'B' ? wa.Bottom - H : wa.Top + (wa.Height - H) / 2;
         PlaceBody(new Point(x, y));
+        AutoDirection();
         SaveSettings();
     }
 
@@ -2386,6 +2406,10 @@ sealed class WidgetForm : Form
                 else if (k == "hoverapps") hoverApps = v != "0";
                 else if (k == "known") known.UnionWith(Split(v));
                 else if (k == "tips") tipsSeen = v == "1";
+                else if (k == "ministyle") islandStyle = v != "classic";
+                else if (k == "islandpop") islandPop = v != "0";
+                else if (k == "minidir") miniDir = v == "row" ? 1 : v == "column" ? 2 : 0;
+                else if (k == "minivert") miniVert = v == "1";
                 else if (k == "alerts")
                 {
                     var parts = v.Split(',');
@@ -2430,7 +2454,9 @@ sealed class WidgetForm : Form
                 "graph=" + (graphStyle == 1 ? "line" : graphStyle == 2 ? "bars" : "area"), "interval=" + intervalMs.ToString(CI), "history=" + graphSec.ToString(CI),
                 "temp=" + (fahrenheit ? "f" : "c"), "netunit=" + (netBits ? "bits" : "bytes"), "ping=" + pinger.Host,
                 "fullscreen=" + (fsMode == 1 ? "mini" : fsMode == 2 ? "hide" : "off"), "hotkeys=" + (hotkeys ? "1" : "0"), "hoverapps=" + (hoverApps ? "1" : "0"),
-                "alerts=" + AlertsText(), "known=" + string.Join(",", known), "tips=" + (tipsSeen ? "1" : "0") });
+                "alerts=" + AlertsText(), "known=" + string.Join(",", known), "tips=" + (tipsSeen ? "1" : "0"),
+                "ministyle=" + (islandStyle ? "island" : "classic"), "islandpop=" + (islandPop ? "1" : "0"),
+                "minidir=" + (miniDir == 1 ? "row" : miniDir == 2 ? "column" : "auto"), "minivert=" + (miniVert ? "1" : "0") });
         }
         catch { }
     }

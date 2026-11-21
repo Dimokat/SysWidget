@@ -37,7 +37,7 @@ Requires Windows 10 or 11 (uses the .NET Framework that ships with Windows). Eve
 | Ctrl + Alt + W / Ctrl + Alt + M | Hide or show the widget / switch mini mode, from any app (can be turned off in Settings) |
 | Tray icon | Left-click hides/shows the widget, right-click opens the same menu, hover shows a quick summary |
 
-- **Mini mode** turns it into a single line of stats.
+- **Mini mode** turns it into a single line of stats. By default it's an *island*: point at a stat and it grows into a card with more (graphs, the busiest apps, album art with play/pause and skip buttons), then shrinks back when the mouse leaves. It also opens for a few seconds when the song changes. With click-through on, hold Ctrl to use it. *Settings → Mini mode* can switch it to the classic strip. Docked to the left or right edge of the screen, mini mode becomes a column of small tiles (and the island's cards slide out sideways); this can also be fixed to a row or a column there.
 - **Hide widget** (or a left-click on the tray icon) tucks it away while it keeps running in the tray. Starting SysWidget again brings it back.
 - **Show** turns individual sections on and off. Hidden sections aren't polled at all. **Ping** and **Now playing** start off; turn them on here.
 - **Settings** has everything else, and changes apply as you make them:

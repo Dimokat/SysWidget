@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.NetworkInformation;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -84,8 +85,20 @@ sealed class Pinger
 // What's playing (Spotify, browsers, players...): Windows' media sessions, read on a worker thread.
 static class NowPlaying
 {
-    public static volatile string Title = "", Artist = "", App = "";
+    public static volatile string Title = "", Artist = "", Album = "", App = "";
     public static volatile bool Has, Playing;
+    public static volatile bool Polled;          // read at least once
+    public static volatile byte[] Art;           // cover image (PNG/JPEG), null if none
+    public static volatile int ArtVersion;       // changes whenever Art does
+    public static double Pos, Dur;               // seconds; Dur 0 = the app doesn't report a timeline
+    public static DateTime Stamp;                // when Pos was measured (UTC)
+
+    public static double Position()
+    {
+        double p = Pos;
+        if (Playing && Stamp.Year > 2000) p += (DateTime.UtcNow - Stamp).TotalSeconds;
+        return Math.Max(0, Math.Min(Dur, p));
+    }
     static int busy, failures;
 
     public static void Poll()
@@ -105,14 +118,49 @@ static class NowPlaying
         ThreadPool.QueueUserWorkItem(delegate { try { MediaSessions.Command(c); } catch { } Thread.Sleep(250); Poll(); });
     }
 
-    // "Spotify.exe" -> Spotify, "Brave.UO3X..." -> Brave, "Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic" -> ZuneMusic
+    // The player's name as the Start menu shows it ("com.deezer.deezer-desktop" -> Deezer), else a guess from its id.
+    static readonly Dictionary<string, string> appNames = new Dictionary<string, string>();
     public static string AppName(string aumid)
     {
         if (string.IsNullOrEmpty(aumid)) return "";
+        string n;
+        lock (appNames) if (appNames.TryGetValue(aumid, out n)) return n;
+        n = StartMenuName(aumid) ?? GuessName(aumid);
+        lock (appNames) appNames[aumid] = n;
+        return n;
+    }
+
+    static string StartMenuName(string aumid)
+    {
+        string result = null;
+        var t = new Thread(delegate ()
+        {
+            try
+            {
+                var type = Type.GetTypeFromProgID("Shell.Application");
+                object sh = Activator.CreateInstance(type);
+                object folder = type.InvokeMember("NameSpace", BindingFlags.InvokeMethod, null, sh, new object[] { "shell:AppsFolder" });
+                if (folder == null) return;
+                object item = folder.GetType().InvokeMember("ParseName", BindingFlags.InvokeMethod, null, folder, new object[] { aumid });
+                if (item != null) result = item.GetType().InvokeMember("Name", BindingFlags.GetProperty, null, item, null) as string;
+            }
+            catch { }
+        });
+        t.SetApartmentState(ApartmentState.STA); t.IsBackground = true; t.Start(); t.Join(3000);
+        return string.IsNullOrEmpty(result) ? null : result.Trim();
+    }
+
+    // "Spotify.exe" -> Spotify, "Brave.UO3X..." -> Brave, "com.deezer.deezer-desktop" -> Deezer,
+    // "Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic" -> ZuneMusic
+    static string GuessName(string aumid)
+    {
         string s = aumid; int bang = s.LastIndexOf('!'); if (bang >= 0) s = s.Substring(bang + 1);
         if (s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) s = s.Substring(0, s.Length - 4);
         var parts = s.Split('.');
-        if (parts.Length > 1 && (parts[0] == "Microsoft" || parts[0] == "Windows")) s = parts[parts.Length - 1]; else s = parts[0];
+        string first = parts[0].ToLowerInvariant();
+        if (parts.Length > 1 && (first == "com" || first == "org" || first == "net" || first == "io" || first == "app" || first == "dev")) s = parts[1];
+        else if (parts.Length > 1 && (parts[0] == "Microsoft" || parts[0] == "Windows")) s = parts[parts.Length - 1];
+        else s = parts[0];
         s = Regex.Replace(s, "_[a-z0-9]{13}$", "");
         return s.Length > 0 ? char.ToUpperInvariant(s[0]) + s.Substring(1) : s;
     }
@@ -135,16 +183,55 @@ static class MediaSessions
         return mgr == null ? null : mgr.GetCurrentSession();
     }
 
+    static string artKey; static int artTries;
+
     public static void Read()
     {
         var s = Session();
-        if (s == null) { NowPlaying.Has = false; NowPlaying.Playing = false; return; }
+        if (s == null) { NowPlaying.Has = false; NowPlaying.Playing = false; SetArt(null, ""); NowPlaying.Polled = true; return; }
         var p = Wait(s.TryGetMediaPropertiesAsync());
         NowPlaying.Title = p != null && p.Title != null ? p.Title.Trim() : "";
         NowPlaying.Artist = p != null && p.Artist != null ? p.Artist.Trim() : "";
+        NowPlaying.Album = p != null && p.AlbumTitle != null ? p.AlbumTitle.Trim() : "";
         NowPlaying.App = NowPlaying.AppName(s.SourceAppUserModelId);
         NowPlaying.Playing = s.GetPlaybackInfo().PlaybackStatus == Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
         NowPlaying.Has = NowPlaying.Title != "" || NowPlaying.Artist != "";
+        try
+        {
+            var tl = s.GetTimelineProperties();
+            NowPlaying.Dur = (tl.EndTime - tl.StartTime).TotalSeconds;
+            NowPlaying.Pos = (tl.Position - tl.StartTime).TotalSeconds;
+            NowPlaying.Stamp = tl.LastUpdatedTime.UtcDateTime;
+        }
+        catch { NowPlaying.Dur = 0; }
+        // The cover is read once per song (a few retries: some players attach it a moment later).
+        string key = NowPlaying.Title + "\n" + NowPlaying.Artist + "\n" + NowPlaying.App;
+        if (key != artKey) artTries = 0;
+        if (key != artKey || (NowPlaying.Art == null && artTries < 3))
+        {
+            artTries++;
+            byte[] art = null;
+            try { art = Thumbnail(p); } catch { }
+            artKey = null; SetArt(art, key);
+        }
+        NowPlaying.Polled = true;
+    }
+
+    static void SetArt(byte[] art, string key)
+    {
+        if (key == artKey) return;
+        artKey = key; NowPlaying.Art = art; NowPlaying.ArtVersion++;
+    }
+
+    static byte[] Thumbnail(Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties p)
+    {
+        if (p == null || p.Thumbnail == null) return null;
+        var st = Wait(p.Thumbnail.OpenReadAsync());
+        if (st == null || st.Size == 0 || st.Size > 8 * 1024 * 1024) return null;
+        var rd = new Windows.Storage.Streams.DataReader(st.GetInputStreamAt(0));
+        uint n = Wait((Windows.Foundation.IAsyncOperation<uint>)rd.LoadAsync((uint)st.Size));
+        var buf = new byte[n]; rd.ReadBytes(buf);
+        return buf;
     }
 
     public static void Command(int c)

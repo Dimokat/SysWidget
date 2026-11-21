@@ -116,7 +116,7 @@ sealed class AppsPopup : Form
 sealed class TipsWindow : Form
 {
     readonly float d; readonly Font fText, fBold; readonly Button ok;
-    static readonly string[] TipKeys = { "drag", "dbl", "right", "hover", "ctrl", "tray", "keys", "media" };
+    static readonly string[] TipKeys = { "drag", "dbl", "right", "hover", "island", "ctrl", "tray", "keys", "media" };
 
     public TipsWindow(float dpi)
     {

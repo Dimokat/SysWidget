@@ -231,6 +231,17 @@ sealed class SettingsWindow : Form
 
     float MiniTab(Graphics g, bool draw, float x, float width, float y)
     {
+        y = Choice(g, draw, x, width, y, Lang.T("settings.ministyle"), new[] { Lang.T("settings.ministyle.island"), Lang.T("settings.ministyle.classic") },
+            w.IslandStyle ? 0 : 1, i => w.IslandStyle = i == 0);
+        y = Choice(g, draw, x, width, y, Lang.T("settings.minidir"), new[] { Lang.T("settings.minidir.auto"), Lang.T("settings.minidir.row"), Lang.T("settings.minidir.column") },
+            w.MiniDirection, i => w.MiniDirection = i);
+        y = Note(g, draw, x, width, y - S(6), Lang.T("settings.minidir.note"));
+        if (w.IslandStyle)
+        {
+            y = Note(g, draw, x, width, y - S(6), Lang.T("settings.mini.island.note"));
+            y = Toggle(g, draw, x, width, y - S(4), Lang.T("settings.islandpop"), w.IslandPop, () => w.IslandPop = !w.IslandPop);
+            y += S(10);
+        }
         y = Note(g, draw, x, width, y, Lang.T("settings.mini.note"));
         foreach (var id in w.Sections())
         {
