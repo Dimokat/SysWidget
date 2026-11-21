@@ -604,6 +604,21 @@ sealed partial class WidgetForm : Form
             t.Tick += delegate { t.Stop(); t.Dispose(); ShowTips(); };
             t.Start();
         }
+        // First start after an update (one-click or Setup): say so, with a link to what's new.
+        Version last;
+        if (lastVersion != null && Version.TryParse(lastVersion, out last) && last < new Version(VersionText))
+        {
+            var t2 = new System.Windows.Forms.Timer { Interval = 2500 };
+            t2.Tick += delegate
+            {
+                t2.Stop(); t2.Dispose();
+                if (tray == null) return;
+                balloonUpdate = false; balloonTaskMgr = false; balloonUrl = "https://github.com/" + Repo + "/releases/tag/v" + VersionText;
+                tray.ShowBalloonTip(8000, Lang.F("notify.updated.title", "v" + VersionText), Lang.T("notify.updated.text"), ToolTipIcon.Info);
+            };
+            t2.Start();
+        }
+        if (lastVersion != VersionText) SaveSettings();
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
@@ -2226,7 +2241,7 @@ sealed partial class WidgetForm : Form
     static string VersionText { get { return AppVersion.Major + "." + AppVersion.Minor + "." + AppVersion.Build; } }
 
     // ---- one-click update: download the release zip, check it, unpack it and let its Setup.exe update us
-    bool updating, balloonUpdate;
+    bool updating, balloonUpdate; string lastVersion; // the version that ran last time
     static string UpdateDir { get { return Path.Combine(Path.GetTempPath(), "SysWidget-update"); } }
     static string InstalledExe { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "SysWidget", "SysWidget.exe"); } }
     // Only the installed copy updates itself; a copy elsewhere opens the download page instead.
@@ -2535,6 +2550,7 @@ sealed partial class WidgetForm : Form
                 else if (k == "minidir") miniDir = v == "row" ? 1 : v == "column" ? 2 : 0;
                 else if (k == "minivert") miniVert = v == "1";
                 else if (k == "rtss") rtss = v == "1";
+                else if (k == "version") lastVersion = v;
                 else if (k == "alerts")
                 {
                     var parts = v.Split(',');
@@ -2581,7 +2597,7 @@ sealed partial class WidgetForm : Form
                 "fullscreen=" + (fsMode == 1 ? "mini" : fsMode == 2 ? "hide" : "off"), "hotkeys=" + (hotkeys ? "1" : "0"), "hoverapps=" + (hoverApps ? "1" : "0"),
                 "alerts=" + AlertsText(), "known=" + string.Join(",", known), "tips=" + (tipsSeen ? "1" : "0"),
                 "ministyle=" + (islandStyle ? "island" : "classic"), "islandpop=" + (islandPop ? "1" : "0"),
-                "minidir=" + (miniDir == 1 ? "row" : miniDir == 2 ? "column" : "auto"), "minivert=" + (miniVert ? "1" : "0"), "rtss=" + (rtss ? "1" : "0") });
+                "minidir=" + (miniDir == 1 ? "row" : miniDir == 2 ? "column" : "auto"), "minivert=" + (miniVert ? "1" : "0"), "rtss=" + (rtss ? "1" : "0"), "version=" + VersionText });
         }
         catch { }
     }
