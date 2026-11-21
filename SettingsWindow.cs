@@ -313,6 +313,8 @@ sealed class SettingsWindow : Form
         y = Toggle(g, draw, x, width, y, Lang.T("menu.startup"), w.Startup, () => w.Startup = !w.Startup);
         y = Toggle(g, draw, x, width, y, Lang.T("menu.updates"), w.CheckUpdates, () => w.CheckUpdates = !w.CheckUpdates);
         y = Toggle(g, draw, x, width, y, Lang.T("settings.hoverapps"), w.HoverApps, () => w.HoverApps = !w.HoverApps);
+        y = Toggle(g, draw, x, width, y, Lang.T("settings.rtss"), w.RivaTuner, () => w.RivaTuner = !w.RivaTuner);
+        y = Note(g, draw, x + S(30), width - S(30), y - S(4), Lang.T(w.RivaTuner && !w.RivaTunerFound ? "settings.rtss.missing" : "settings.rtss.note"));
         y = Toggle(g, draw, x, width, y, Lang.T("settings.hotkeys"), w.Hotkeys, () => w.Hotkeys = !w.Hotkeys);
         y = Note(g, draw, x + S(30), width - S(30), y - S(4), Lang.T(w.HotkeysFailed ? "settings.hotkeys.busy" : "settings.hotkeys.note"));
         y = Choice(g, draw, x, width, y, Lang.T("settings.fullscreen"),

@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Forms;
@@ -305,4 +306,73 @@ sealed class TopApps : IDisposable
     }
 
     public void Dispose() { if (q != IntPtr.Zero) { PdhCloseQuery(q); q = IntPtr.Zero; } }
+}
+
+// Hands SysWidget's numbers to RivaTuner Statistics Server, which draws them in games' on-screen display (also
+// in exclusive fullscreen). This uses RTSS's documented shared memory, the way other monitoring tools do: SysWidget
+// only writes text into one OSD slot it owns; RTSS does all the drawing, and only in the games set up in RTSS.
+static class Rtss
+{
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr OpenFileMapping(uint access, bool inherit, string name);
+    [DllImport("kernel32.dll")] static extern IntPtr MapViewOfFile(IntPtr map, uint access, uint offHigh, uint offLow, UIntPtr bytes);
+    [DllImport("kernel32.dll")] static extern bool UnmapViewOfFile(IntPtr view);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+    const uint FILE_MAP_ALL_ACCESS = 0xF001F;
+    const string Owner = "SysWidget";
+    const int OwnerAt = 256, TextExAt = 512; // RTSS_SHARED_MEMORY_OSD_ENTRY: szOSD[256], szOSDOwner[256], szOSDEx[4096]
+
+    /// <summary>RTSS was found the last time we looked.</summary>
+    public static volatile bool Running;
+
+    /// <summary>Puts the text in SysWidget's OSD slot. False when RTSS isn't running.</summary>
+    public static bool Show(string text) { return Use(text ?? ""); }
+
+    /// <summary>Gives the slot back (the text disappears from games).</summary>
+    public static void Clear() { Use(null); }
+
+    static bool Use(string text)
+    {
+        IntPtr map = OpenFileMapping(FILE_MAP_ALL_ACCESS, false, "RTSSSharedMemoryV2");
+        if (map == IntPtr.Zero) { Running = false; return false; }
+        IntPtr mem = MapViewOfFile(map, FILE_MAP_ALL_ACCESS, 0, 0, UIntPtr.Zero);
+        try
+        {
+            if (mem == IntPtr.Zero) return false;
+            uint sig = (uint)Marshal.ReadInt32(mem, 0), ver = (uint)Marshal.ReadInt32(mem, 4);
+            if (sig != 0x52545353 /*'RTSS'*/ || ver < 0x00020000) { Running = false; return false; }
+            Running = true;
+            int entrySize = Marshal.ReadInt32(mem, 20), arrOffset = Marshal.ReadInt32(mem, 24), arrSize = Marshal.ReadInt32(mem, 28);
+            if (entrySize < OwnerAt + 256 || arrSize <= 1) return false;
+            // Slot 0 is left to the main OSD client (MSI Afterburner); others start from slot 1.
+            int passes = text == null ? 1 : 2; // clearing: just find our slot; showing: find it, else take a free one
+            for (int pass = 0; pass < passes; pass++)
+                for (int i = 1; i < arrSize; i++)
+                {
+                    IntPtr e = new IntPtr(mem.ToInt64() + arrOffset + (long)i * entrySize);
+                    string owner = Marshal.PtrToStringAnsi(new IntPtr(e.ToInt64() + OwnerAt)) ?? "";
+                    if (text == null)
+                    {
+                        if (owner != Owner) continue;
+                        Marshal.Copy(new byte[entrySize], 0, e, entrySize);
+                        Bump(mem); return true;
+                    }
+                    if (pass == 1 && owner == "") { Write(new IntPtr(e.ToInt64() + OwnerAt), Owner, 256); owner = Owner; }
+                    if (owner != Owner) continue;
+                    if (ver >= 0x00020007 && entrySize >= TextExAt + 4096) Write(new IntPtr(e.ToInt64() + TextExAt), text, 4096);
+                    else Write(e, text, 256);
+                    Bump(mem); return true;
+                }
+            return text == null;
+        }
+        finally { if (mem != IntPtr.Zero) UnmapViewOfFile(mem); CloseHandle(map); }
+    }
+
+    static void Write(IntPtr at, string s, int max)
+    {
+        byte[] b = Encoding.Default.GetBytes(s); // RTSS reads text in the Windows ANSI code page
+        int n = Math.Min(b.Length, max - 1);
+        Marshal.Copy(b, 0, at, n); Marshal.WriteByte(at, n, 0);
+    }
+
+    static void Bump(IntPtr mem) { Marshal.WriteInt32(mem, 32, Marshal.ReadInt32(mem, 32) + 1); } // dwOSDFrame: "text changed"
 }

@@ -47,7 +47,7 @@ Requires Windows 10 or 11 (uses the .NET Framework that ships with Windows). Eve
   - *Alerts*: a Windows notification when the CPU or GPU stays too hot, RAM too full or a drive nearly full.
 - **Now playing** shows what's playing in Spotify, a browser or any other player, with previous / play-pause / next buttons.
 - While a window or a fullscreen app covers the widget, it stops drawing (it keeps measuring), so it costs even less.
-- It checks this repo's releases for updates (about once every 6 hours) and shows a small yellow dot plus an *Update available* menu item when there is one. You can turn this off in Settings.
+- It checks this repo's releases for updates (about once every 6 hours) and shows a small yellow dot plus an *Update to vX.Y.Z now* menu item when there is one. One click downloads the release, checks it against the SHA-256 in the release notes, installs it with your current choices and restarts SysWidget; your settings stay. You can turn update checks off in Settings.
 - **How to use** in the menu shows all of this on one page. It also opens once on first start.
 
 <p align="center">
@@ -59,7 +59,7 @@ Requires Windows 10 or 11 (uses the .NET Framework that ships with Windows). Eve
 
 FPS is read from Windows' own graphics event tracing (the same source PresentMon uses). Nothing is injected into games, so it's safe with anti-cheat. Windows only allows this for programs running as admin, which is why it relies on **Start with Windows** (a scheduled task with highest privileges, so there's no UAC prompt at login).
 
-In true *exclusive* fullscreen no normal window can be drawn over a game. Use borderless/windowed fullscreen to see the widget in-game.
+In true *exclusive* fullscreen no normal window can be drawn over a game. Use borderless/windowed fullscreen to see the widget in-game, or turn on **Settings → General → Show in games through RivaTuner**: SysWidget then hands the Mini mode sections to [RivaTuner Statistics Server](https://www.guru3d.com/download/rtss-rivatuner-statistics-server-download/) (it comes with MSI Afterburner), which shows them in games' on-screen display, exclusive fullscreen included. SysWidget itself still never touches the game; which games show the overlay is set in RivaTuner.
 
 ## Languages
 

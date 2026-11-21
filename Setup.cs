@@ -34,8 +34,27 @@ static class Setup
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Lang.Load(""); // the Windows display language
+        if (args.Length > 0 && args[0].Equals("/update", StringComparison.OrdinalIgnoreCase)) { SilentUpdate(); return; }
         bool uninstall = args.Length > 0 && args[0].Equals("/uninstall", StringComparison.OrdinalIgnoreCase);
         Application.Run(new SetupForm(uninstall));
+    }
+
+    // Started by the widget's "Update now": installs over the current copy with the same choices (startup task,
+    // shortcuts), then starts the new version. No window unless something goes wrong.
+    static void SilentUpdate()
+    {
+        try
+        {
+            for (int i = 0; i < 50 && Process.GetProcessesByName("SysWidget").Length > 0; i++) System.Threading.Thread.Sleep(100); // let it exit by itself
+            bool inst = Installed;
+            bool startup = !inst || HasStartupTask, startMenu = !inst || HasStartMenuShortcut, desktop = inst && HasDesktopShortcut;
+            Install(startup, startMenu, desktop, s => { });
+            Launch(startup);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(Lang.T("setup.st.failed") + "\n\n" + ex.Message, Lang.T("setup.title"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     // SysWidget.exe is shipped next to Setup.exe, not embedded in it.

@@ -611,6 +611,7 @@ sealed partial class WidgetForm : Form
         timer.Stop(); ctTimer.Stop(); fadeTimer.Stop(); hoverTimer.Stop(); islandAnim.Stop();
         if (fgHook != IntPtr.Zero) UnhookWinEvent(fgHook);
         UnregisterHotKey(Handle, 1); UnregisterHotKey(Handle, 2);
+        if (rtss) Rtss.Clear();
         HidePopup();
         if (!skipSave) SaveSettings();
         pdh.Dispose();
@@ -678,6 +679,7 @@ sealed partial class WidgetForm : Form
             if (mt != miniTitle) { miniTitle = mt; if (MiniWidth() != W) Relayout(); }
         }
         IslandTick();
+        UpdateRtss();
         if (hidden || fsHiddenNow) return;
         if (!onTop && !desktopRaised && DesktopIsAboveUs()) RaiseOverDesktop();
         if (onTop) KeepOnTop();
@@ -1695,8 +1697,67 @@ sealed partial class WidgetForm : Form
         if (!a.On || !cond) { a.Since = DateTime.MinValue; return; }
         if (a.Since == DateTime.MinValue) a.Since = now;
         if ((now - a.Since).TotalSeconds < 15 || (now - a.Last).TotalMinutes < cooldownMin) return;
-        a.Last = now; balloonUrl = null; balloonTaskMgr = taskMgr;
+        a.Last = now; balloonUrl = null; balloonTaskMgr = taskMgr; balloonUpdate = false;
         tray.ShowBalloonTip(8000, title, text, ToolTipIcon.Warning);
+    }
+
+    // ---- RivaTuner: the Mini mode sections as colored lines in games' on-screen display
+    bool rtss;
+    internal bool RivaTuner { get { return rtss; } set { rtss = value; if (value) UpdateRtss(); else Rtss.Clear(); SaveSettings(); } }
+    internal bool RivaTunerFound { get { return Rtss.Running; } }
+
+    void UpdateRtss() { if (rtss) Rtss.Show(RtssText()); }
+
+    static string Col(Color c) { return "<C=" + (c.ToArgb() & 0xFFFFFF).ToString("X6") + ">"; }
+
+    string RtssText()
+    {
+        var sb = new StringBuilder();
+        foreach (var id in Sections())
+        {
+            if (!IsShown(id, true)) continue;
+            string label, value = null;
+            switch (id)
+            {
+                case "cpu": label = Lang.T("label.cpu"); value = Pct(cpu) + (Opt(id, "temp") && TempText(cpuTemp) != null ? "  " + TempText(cpuTemp) : ""); break;
+                case "fps": label = Lang.T("label.fps"); value = FpsText(); break;
+                case "ram": label = Lang.T("label.ram"); value = Lang.F("ram.value", N(ramUsed, "0.0"), N(ramTotal, "0.0")); break;
+                case "net":
+                    label = Lang.T("label.net"); value = RateNet(down);
+                    if (Opt(id, "up")) value += "  " + Col(ColorOf("net.up")) + RateNet(up) + "<C>";
+                    break;
+                case "ping": label = Lang.T("label.ping"); value = PingText(pinger.Ms); break;
+                case "battery":
+                    label = Lang.T("label.battery");
+                    value = Battery.Percent >= 0 ? Pct(Battery.Percent) + (Battery.Charging ? "  " + Lang.T("battery.charging") : "") : "\u2014";
+                    break;
+                case "disk":
+                    label = Lang.T("label.disk");
+                    if (Opt(id, "free") && drives.Count > 0)
+                    {
+                        var l = new List<string>();
+                        foreach (var d in drives) l.Add(d.Name + " " + Lang.F("disk.short", N((float)(d.Free / GB), "0")));
+                        value = string.Join("  ", l);
+                    }
+                    else value = Lang.F("disk.read", Rate(diskR)) + "  " + Lang.F("disk.write", Rate(diskW));
+                    break;
+                case "media":
+                    label = Lang.T("label.media");
+                    if (NowPlaying.Has) value = NowPlaying.Title + (NowPlaying.Artist != "" ? " - " + NowPlaying.Artist : "");
+                    break;
+                default:
+                {
+                    var gp = GpuById(id); if (gp == null) continue;
+                    label = GpuLabel(gp);
+                    value = gp.Idle ? Lang.T("gpu.idle.short") : Pct(gp.Load) + (Opt(id, "temp") && HasTemp(gp) && TempText(gp.Temp) != null ? "  " + TempText(gp.Temp) : "");
+                    break;
+                }
+            }
+            if (value == null) continue;
+            if (sb.Length > 0) sb.Append('\n');
+            sb.Append(Col(ColorOf(id))).Append(label).Append("<C>  ").Append(value.Replace("\u2193", "").Replace("\u2191", ""));
+        }
+        return sb.ToString();
     }
 
     string AlertsText()
@@ -1871,13 +1932,14 @@ sealed partial class WidgetForm : Form
     void BuildMenu()
     {
         menu = new ToolMenu();
-        var miUpdate = new ToolStripMenuItem("", null, delegate { OpenUrl(updateUrl); }) { Visible = false, Name = "accent" };
+        var miUpdate = new ToolStripMenuItem("", null, delegate { StartUpdate(); }) { Visible = false, Name = "accent" };
         var miUpdSep = new ToolStripSeparator { Visible = false };
         menu.Items.Add(miUpdate); menu.Items.Add(miUpdSep);
         menu.Opening += delegate
         {
             miUpdate.Visible = miUpdSep.Visible = updateTag != null;
-            if (updateTag != null) miUpdate.Text = Lang.F("menu.update", updateTag);
+            if (updateTag != null) miUpdate.Text = updating ? Lang.T("menu.update.downloading") : Lang.F(CanSelfUpdate ? "menu.update.install" : "menu.update", updateTag);
+            miUpdate.Enabled = !updating;
         };
         miTop = new ToolStripMenuItem(Lang.T("menu.ontop"), null, delegate { SetOnTop(!onTop); SaveSettings(); });
         miLock = new ToolStripMenuItem(Lang.T("menu.lock"), null, delegate { locked = !locked; SaveSettings(); });
@@ -2120,7 +2182,7 @@ sealed partial class WidgetForm : Form
     {
         tray = new NotifyIcon { Icon = AppIcon(SystemInformation.SmallIconSize), Text = "SysWidget", ContextMenuStrip = menu };
         tray.MouseClick += (o, e) => { if (e.Button == MouseButtons.Left) SetHidden(!hidden); };
-        tray.BalloonTipClicked += delegate { if (balloonUrl != null) OpenUrl(balloonUrl); else if (balloonTaskMgr) OpenTaskManager(); };
+        tray.BalloonTipClicked += delegate { if (balloonUpdate) StartUpdate(); else if (balloonUrl != null) OpenUrl(balloonUrl); else if (balloonTaskMgr) OpenTaskManager(); };
         tray.Visible = true;
     }
 
@@ -2158,13 +2220,71 @@ sealed partial class WidgetForm : Form
     // ---- update check: asks GitHub for the latest release ~30 s after start, then every 6 h ----
     const string Repo = "Dimokat/SysWidget";
     const string DonateUrl = "https://send.monobank.ua/jar/125L2LfHgy";
-    bool checkUpdates = true; string updateTag, updateUrl;
+    bool checkUpdates = true; string updateTag, updateUrl, updateZip, updateSha;
     readonly System.Windows.Forms.Timer updTimer = new System.Windows.Forms.Timer();
     static readonly Version AppVersion = typeof(WidgetForm).Assembly.GetName().Version;
     static string VersionText { get { return AppVersion.Major + "." + AppVersion.Minor + "." + AppVersion.Build; } }
 
+    // ---- one-click update: download the release zip, check it, unpack it and let its Setup.exe update us
+    bool updating, balloonUpdate;
+    static string UpdateDir { get { return Path.Combine(Path.GetTempPath(), "SysWidget-update"); } }
+    static string InstalledExe { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "SysWidget", "SysWidget.exe"); } }
+    // Only the installed copy updates itself; a copy elsewhere opens the download page instead.
+    bool CanSelfUpdate
+    {
+        get { try { return updateZip != null && string.Equals(Path.GetFullPath(Application.ExecutablePath), InstalledExe, StringComparison.OrdinalIgnoreCase); } catch { return false; } }
+    }
+
+    void StartUpdate()
+    {
+        if (updating || updateTag == null) return;
+        if (!CanSelfUpdate) { OpenUrl(updateUrl); return; }
+        updating = true;
+        string tag = updateTag, zipUrl = updateZip, sha = updateSha, page = updateUrl;
+        if (tray != null) tray.ShowBalloonTip(5000, Lang.F("notify.update.title", tag), Lang.T("notify.update.downloading"), ToolTipIcon.Info);
+        ThreadPool.QueueUserWorkItem(delegate
+        {
+            try
+            {
+                string dir = Path.Combine(UpdateDir, tag);
+                if (Directory.Exists(dir)) Directory.Delete(dir, true);
+                Directory.CreateDirectory(dir);
+                string zip = Path.Combine(dir, "update.zip"), files = Path.Combine(dir, "files");
+                ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+                using (var wc = new WebClient()) { wc.Headers[HttpRequestHeader.UserAgent] = "SysWidget/" + VersionText; wc.DownloadFile(zipUrl, zip); }
+                if (sha != null)
+                    using (var hash = System.Security.Cryptography.SHA256.Create())
+                    using (var st = File.OpenRead(zip))
+                        if (BitConverter.ToString(hash.ComputeHash(st)).Replace("-", "").ToLowerInvariant() != sha) throw new Exception(Lang.T("notify.update.badfile"));
+                System.IO.Compression.ZipFile.ExtractToDirectory(zip, files);
+                string setup = Path.Combine(files, "SysWidget", "Setup.exe");
+                if (!File.Exists(setup) || !File.Exists(Path.Combine(files, "SysWidget", "SysWidget.exe"))) throw new FileNotFoundException("Setup.exe");
+                BeginInvoke((MethodInvoker)delegate
+                {
+                    try
+                    {
+                        SaveSettings();
+                        Process.Start(new ProcessStartInfo(setup, "/update") { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(setup) });
+                        skipSave = true; Close(); // Setup waits for us to exit, installs, then starts the new version
+                    }
+                    catch (Exception ex) { UpdateFailed(tag, page, ex.Message); }
+                });
+            }
+            catch (Exception ex) { var msg = ex.Message; BeginInvoke((MethodInvoker)delegate { UpdateFailed(tag, page, msg); }); }
+        });
+    }
+
+    void UpdateFailed(string tag, string page, string why)
+    {
+        updating = false;
+        if (tray == null) return;
+        balloonUpdate = false; balloonTaskMgr = false; balloonUrl = page;
+        tray.ShowBalloonTip(8000, Lang.F("notify.update.title", tag), Lang.F("notify.update.failed", why), ToolTipIcon.Warning);
+    }
+
     void StartUpdateChecks()
     {
+        try { Directory.Delete(UpdateDir, true); } catch { } // what the last update unpacked
         updTimer.Interval = 30 * 1000;
         updTimer.Tick += delegate { updTimer.Interval = 6 * 3600 * 1000; CheckForUpdate(); };
         updTimer.Start();
@@ -2187,13 +2307,17 @@ sealed partial class WidgetForm : Form
                 var url = Regex.Match(json, "\"html_url\"\\s*:\\s*\"(https://github\\.com/[^\"]+/releases/tag/[^\"]+)\"");
                 if (!tag.Success || new Version(tag.Groups[1].Value) <= new Version(VersionText)) return;
                 string t = "v" + tag.Groups[1].Value, u = url.Success ? url.Groups[1].Value : "https://github.com/" + Repo + "/releases/latest";
+                // The release zip, and its SHA-256 from the release notes (the release workflow writes it there).
+                var zip = Regex.Match(json, "\"browser_download_url\"\\s*:\\s*\"(https://github\\.com/" + Regex.Escape(Repo) + "/releases/download/[^\"]+\\.zip)\"");
+                var sha = Regex.Match(json, "\\.zip`?\\s*:\\s*`?([0-9a-fA-F]{64})");
+                string z = zip.Success ? zip.Groups[1].Value : null, h = sha.Success ? sha.Groups[1].Value.ToLowerInvariant() : null;
                 BeginInvoke((MethodInvoker)delegate
                 {
-                    updateTag = t; updateUrl = u; if (!hidden) Render();
+                    updateTag = t; updateUrl = u; updateZip = z; updateSha = h; if (!hidden) Render();
                     if (tray != null && notifiedTag != t)
                     {
-                        notifiedTag = t; balloonUrl = u;
-                        tray.ShowBalloonTip(8000, Lang.F("notify.update.title", t), Lang.T("notify.update.text"), ToolTipIcon.Info);
+                        notifiedTag = t; balloonUpdate = CanSelfUpdate; balloonUrl = balloonUpdate ? null : u; balloonTaskMgr = false;
+                        tray.ShowBalloonTip(8000, Lang.F("notify.update.title", t), Lang.T(balloonUpdate ? "notify.update.click" : "notify.update.text"), ToolTipIcon.Info);
                     }
                 });
             }
@@ -2410,6 +2534,7 @@ sealed partial class WidgetForm : Form
                 else if (k == "islandpop") islandPop = v != "0";
                 else if (k == "minidir") miniDir = v == "row" ? 1 : v == "column" ? 2 : 0;
                 else if (k == "minivert") miniVert = v == "1";
+                else if (k == "rtss") rtss = v == "1";
                 else if (k == "alerts")
                 {
                     var parts = v.Split(',');
@@ -2456,7 +2581,7 @@ sealed partial class WidgetForm : Form
                 "fullscreen=" + (fsMode == 1 ? "mini" : fsMode == 2 ? "hide" : "off"), "hotkeys=" + (hotkeys ? "1" : "0"), "hoverapps=" + (hoverApps ? "1" : "0"),
                 "alerts=" + AlertsText(), "known=" + string.Join(",", known), "tips=" + (tipsSeen ? "1" : "0"),
                 "ministyle=" + (islandStyle ? "island" : "classic"), "islandpop=" + (islandPop ? "1" : "0"),
-                "minidir=" + (miniDir == 1 ? "row" : miniDir == 2 ? "column" : "auto"), "minivert=" + (miniVert ? "1" : "0") });
+                "minidir=" + (miniDir == 1 ? "row" : miniDir == 2 ? "column" : "auto"), "minivert=" + (miniVert ? "1" : "0"), "rtss=" + (rtss ? "1" : "0") });
         }
         catch { }
     }
