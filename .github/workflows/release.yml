@@ -50,5 +50,6 @@ jobs:
           $notes = "Download **$env:ZIP** below, extract it, then run **Setup.exe**.`n`nSHA-256:`n" +
                    "- ``$env:ZIP``: ``$($h[$env:ZIP])```n" +
                    "- ``SysWidget.exe``: ``$($h['SysWidget.exe'])```n" +
-                   "- ``Setup.exe``: ``$($h['Setup.exe'])``"
+                   "- ``Setup.exe``: ``$($h['Setup.exe'])``" +
+                   "`n`n[Code signing policy](https://dimokat.github.io/SysWidget/#code-signing-policy) · [Privacy policy](https://dimokat.github.io/SysWidget/privacy.html)"
           gh release create '${{ github.ref_name }}' $env:ZIP --title 'SysWidget ${{ github.ref_name }}' --notes $notes --generate-notes

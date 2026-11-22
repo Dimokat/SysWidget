@@ -2393,7 +2393,7 @@ sealed partial class WidgetForm : Form
     internal void SetLanguage(string c)
     {
         langChoice = c ?? ""; SaveSettings(); ApplyLanguage();
-        CheckTranslation();
+        if (checkUpdates) CheckTranslation(); // downloads only while update checks are on (see the privacy policy)
     }
 
     void ApplyLanguage()

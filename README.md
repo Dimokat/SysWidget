@@ -2,7 +2,7 @@
 
 A tiny, native system-monitor widget for Windows. One small exe, no runtimes to install, ~0.03% CPU.
 
-[Download](https://github.com/Dimokat/SysWidget/releases/latest) · [Support the project](https://send.monobank.ua/jar/125L2LfHgy)
+[Homepage](https://dimokat.github.io/SysWidget/) · [Download](https://github.com/Dimokat/SysWidget/releases/latest) · [Support the project](https://send.monobank.ua/jar/125L2LfHgy)
 
 **CPU** load & temperature · **GPUs** (every one, integrated too) load, memory, temperature & power · **FPS** of the app in front · **RAM** · **Network** up/down · **Ping** · **Disks** activity & free space · **Battery** · **Now playing** with play/pause
 
@@ -18,8 +18,6 @@ A tiny, native system-monitor widget for Windows. One small exe, no runtimes to 
 1. Download **SysWidget-vX.Y.Z.zip** from the [latest release](https://github.com/Dimokat/SysWidget/releases/latest).
 2. Extract it and run **Setup.exe** from the **SysWidget** folder inside. Windows SmartScreen may say *"Windows protected your PC"* because the files aren't code-signed: click **More info → Run anyway**.
 3. Keep **Start with Windows** checked. It also enables the FPS counter.
-
-If Microsoft Defender flags it (a `Wacatac!ml`-style detection), that's a machine-learning false positive on new, unsigned software: allow it under *Windows Security → Protection history*. All the source and the automated build are in this repo.
 
 Uninstall from *Settings → Apps*, or run the setup again and pick **Uninstall**.
 
@@ -70,6 +68,10 @@ Built in: English · Українська · Русский · Polski · Češti
 Any other language shows English.
 
 **Helping with translations.** Translations are plain text files in [`lang/`](lang). To fix one or add a language, edit or add `lang/<code>.txt` and open a pull request; [lang/README.md](lang/README.md) explains the format. Once it's merged, SysWidget downloads it from this repository on its next update check (while **Check for updates** is on), so it reaches people without a new release.
+
+## Privacy and code signing
+
+SysWidget doesn't collect personal data. The [privacy policy](https://dimokat.github.io/SysWidget/privacy.html) lists the few connections it makes (update checks, ping) and what they send. See also the [code signing policy](https://dimokat.github.io/SysWidget/#code-signing-policy).
 
 ## Building
 
