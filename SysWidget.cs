@@ -62,6 +62,7 @@ static class Program
     [STAThread]
     static void Main(string[] args)
     {
+        if (args.Length == 2 && args[0] == "--shots") { SetProcessDPIAware(); Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Environment.Exit(WidgetForm.SaveShots(args[1])); }
         if (args.Length >= 1 && args[0] == "--selftest")
         {
             // Off-screen checks of every mode and language (see SelfTest.cs); runs beside a running widget.

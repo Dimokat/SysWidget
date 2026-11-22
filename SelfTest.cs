@@ -49,6 +49,42 @@ sealed partial class WidgetForm
         return log.Fails;
     }
 
+    // "SysWidget.exe --shots folder": pictures of every look at 125% (for the website and for comparing with it).
+    public static int SaveShots(string dir)
+    {
+        selfTesting = true;
+        Directory.CreateDirectory(dir);
+        using (var w = new WidgetForm()) { var h = w.Handle; w.Shots(dir); }
+        return 0;
+    }
+
+    void Shots(string dir)
+    {
+        Sample(); Thread.Sleep(1000); Sample();
+        hiddenFull.Clear(); hiddenMini.Clear(); detailsOff.Clear();
+        scale = 1.25f / dpi; ApplyScale();
+        Action<string> save = name => { Render(); canvas.Save(Path.Combine(dir, name + ".png"), System.Drawing.Imaging.ImageFormat.Png); };
+        foreach (int theme in new[] { 0, 1, 2 })
+        {
+            SetThemeQuiet(theme); miniPref = false; islandStyle = true; Relayout();
+            save("full-" + new[] { "dark", "accent", "light" }[theme]);
+        }
+        SetThemeQuiet(0);
+        foreach (int dir2 in new[] { 1, 2 })
+        {
+            string kind = dir2 == 1 ? "row" : "column";
+            miniPref = true; miniDir = dir2; Relayout(); save(kind);
+            foreach (var id in new[] { "cpu", "ram", "net", "media" })
+            {
+                OpenIsland(id); RunAnimation(new List<double>());
+                var c = Stopwatch.StartNew();
+                while (Ms(c) < 1500) { Application.DoEvents(); Thread.Sleep(20); }
+                BuildIslandContent(); save(kind + "-" + id);
+                CloseIslandNow();
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ the run
     void RunTests(TestLog log)
     {
