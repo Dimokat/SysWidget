@@ -62,12 +62,24 @@
       </div>
       <p class="small" style="margin-top:14px">MIT license · no ads, no accounts, no tracking</p>
     </div>
-    <div class="shots">
-      <img class="a" src="widget.png" alt="SysWidget showing CPU, two GPUs, FPS, RAM, network and disks">
-      <img class="b" src="widget-accent.png" alt="SysWidget using the Windows accent color as its background">
+    <div class="demo-full" data-demo="full">
+      <div class="sw-stage" data-sections="cpu gpu:0 fps ram net disk media">
+        <img src="widget.png" width="300" height="548" alt="SysWidget showing CPU, two GPUs, FPS, RAM, network and disks">
+      </div>
+      <div class="themes" role="group" aria-label="Panel color">
+        <button type="button" data-theme-pick="0" aria-pressed="true">Dark</button>
+        <button type="button" data-theme-pick="1" aria-pressed="false">Accent</button>
+        <button type="button" data-theme-pick="2" aria-pressed="false">Light</button>
+      </div>
+      <p class="demo-note">Try it: point at CPU or RAM, or press play. The numbers are made up.</p>
     </div>
   </div>
-  <div class="wrap strip"><img src="mini.png" alt="Mini mode: all stats on a single line"></div>
+  <div class="wrap strip">
+    <div class="island-stage" data-demo="row" data-sections="cpu gpu:0 fps ram net ping media">
+      <img src="mini.png" alt="Mini mode: all stats on a single line">
+    </div>
+    <p class="demo-note">Mini mode, docked to the top of the screen. Point at a stat (or tap it) to open its card.</p>
+  </div>
 </div>
 
 <section id="features">
@@ -89,6 +101,11 @@
   <div class="wrap">
     <h2>Fits your setup</h2>
     <p class="sub">Full panel, one-line strip, or a slim column on the side of the screen.</p>
+    <div class="setup">
+    <figure class="column-demo">
+      <div class="island-stage tall" data-demo="column" data-sections="cpu gpu:0 ram net ping media"></div>
+      <figcaption class="demo-note">Docked to the side, mini mode becomes a column. Point at a stat, or tap it.</figcaption>
+    </figure>
     <div class="grid">
       <div class="card"><h3>Island mini mode</h3><p>A rounded strip of stats. Point at one and it opens into a card with graphs, the busiest apps, or album art and media buttons.</p></div>
       <div class="card"><h3>Column on the side</h3><p>Dock mini mode to the left or right edge and it becomes a column of compact tiles with icons.</p></div>
@@ -99,6 +116,7 @@
       <div class="card"><h3>Looks like Windows</h3><p>Dark, light or your Windows accent color, adjustable size and opacity, snaps and docks to screen edges.</p></div>
       <div class="card"><h3>Stays out of the way</h3><p>Click-through or hide under the cursor (hold Ctrl to use it), keyboard shortcuts, and it stops drawing while covered.</p></div>
       <div class="card"><h3>20 languages</h3><p>Follows your Windows display language. Translations are plain text files anyone can improve on GitHub.</p></div>
+    </div>
     </div>
   </div>
 </section>
@@ -177,5 +195,6 @@
   </div>
 </footer>
 
+<script src="demo.js" defer></script>
 </body>
 </html>
