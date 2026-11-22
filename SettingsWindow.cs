@@ -1,4 +1,4 @@
-// SysWidget - settings window: what the widget shows, in which order, and how it looks.
+﻿// SysWidget - settings window: what the widget shows, in which order, and how it looks.
 // Drawn by hand in the widget's style (same panel colour, accent and type); every change applies live.
 using System;
 using System.Collections.Generic;
@@ -37,6 +37,7 @@ sealed class SettingsWindow : Form
         ShowInTaskbar = true; StartPosition = FormStartPosition.Manual; KeyPreview = true;
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
         MakeFonts();
+        BackColor = Bg; // what shows for a moment while Windows resizes or uncovers the window
         ClientSize = new Size(S(520), S(420));
         KeyDown += (o, e) => { if (e.KeyCode == Keys.Escape) Close(); };
     }
@@ -57,6 +58,7 @@ sealed class SettingsWindow : Form
         MakeFonts();
         foreach (var f in old) f.Dispose();
         Text = Lang.T("settings.title");
+        tallest = 0;
         Reflow();
     }
 
@@ -87,21 +89,35 @@ sealed class SettingsWindow : Form
             int brd = Line.R | Line.G << 8 | Line.B << 16; DwmSetWindowAttribute(Handle, 34 /*BORDER_COLOR*/, ref brd, 4);
         }
         catch { }
+        BackColor = Bg;
         Invalidate();
     }
 
-    // Re-measure (the window grows/shrinks to fit the tab) and repaint.
+    // Re-measure and repaint. The window is as tall as its tallest tab, so switching tabs doesn't resize it
+    // (it only grows if a tab gets taller, e.g. with a colour picker open).
+    int tallest;
     public void Reflow()
     {
         using (var b = new Bitmap(1, 1)) using (var g = Graphics.FromImage(b))
         {
-            int h = (int)Math.Ceiling(Build(g, false));
+            if (tallest == 0)
+            {
+                int keep = tab; string keepKey = colorKey;
+                for (int i = 0; i < Tabs.Length; i++) { tab = i; colorKey = null; tallest = Math.Max(tallest, (int)Math.Ceiling(Build(g, false))); }
+                tab = keep; colorKey = keepKey;
+            }
+            tallest = Math.Max(tallest, (int)Math.Ceiling(Build(g, false)));
+            int max = Screen.FromControl(this).WorkingArea.Height - (Height - ClientSize.Height);
+            int h = Math.Min(tallest, Math.Max(S(200), max));
             if (ClientSize.Height != h) ClientSize = new Size(ClientSize.Width, h);
         }
         Invalidate();
     }
 
     protected override void OnShown(EventArgs e) { base.OnShown(e); Reflow(); }
+
+    // Dragged over the always-on-top widget: stay above it.
+    protected override void OnResizeEnd(EventArgs e) { base.OnResizeEnd(e); w.KeepSettingsReachable(); }
 
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -115,19 +131,21 @@ sealed class SettingsWindow : Form
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        bool over = false; foreach (var h in hits) if (h.R.Contains(e.Location)) { over = true; break; }
-        Cursor = over ? Cursors.Hand : Cursors.Default;
-        Invalidate();
+        int over = -1; for (int i = hits.Count - 1; i >= 0; i--) if (hits[i].R.Contains(e.Location)) { over = i; break; }
+        Cursor = over >= 0 ? Cursors.Hand : Cursors.Default;
+        // Repaint only when the pointer moves onto another control (a full repaint takes a few ms).
+        if (over != hoverHit) { hoverHit = over; Invalidate(); }
     }
+    int hoverHit = -1;
 
-    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); Invalidate(); }
+    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hoverHit = -1; Invalidate(); }
 
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
         if (e.Button != MouseButtons.Left) return;
         for (int i = hits.Count - 1; i >= 0; i--)
-            if (hits[i].R.Contains(e.Location)) { hits[i].Click(); Reflow(); return; }
+            if (hits[i].R.Contains(e.Location)) { hits[i].Click(); hoverHit = -2; Reflow(); return; }
     }
 
     bool Hover(RectangleF r) { return r.Contains(PointToClient(Cursor.Position)); }
@@ -135,6 +153,14 @@ sealed class SettingsWindow : Form
     void Add(RectangleF r, Action a, bool draw) { if (draw) hits.Add(new Hit { R = r, Click = a }); }
 
     // ------------------------------------------------------------------ layout (draw == false only measures)
+    // For the self-test: show a tab (returns the window height) and draw it into a bitmap; the window stays hidden.
+    internal int TestTabHeight(int t) { tab = t; colorKey = null; Reflow(); return ClientSize.Height; }
+    internal void TestPaint()
+    {
+        using (var b = new Bitmap(ClientSize.Width, ClientSize.Height)) using (var g = Graphics.FromImage(b))
+        { g.SmoothingMode = SmoothingMode.AntiAlias; g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit; Build(g, true); }
+    }
+
     float Build(Graphics g, bool draw)
     {
         if (draw) hits.Clear();

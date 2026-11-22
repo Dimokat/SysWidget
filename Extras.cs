@@ -1,4 +1,4 @@
-// SysWidget - extra sources: battery, ping, now playing and the busiest apps.
+﻿// SysWidget - extra sources: battery, ping, now playing and the busiest apps.
 // Each one is read only while its section (or popup) is on screen.
 using System;
 using System.Collections.Generic;
@@ -153,7 +153,7 @@ static class NowPlaying
 
     // "Spotify.exe" -> Spotify, "Brave.UO3X..." -> Brave, "com.deezer.deezer-desktop" -> Deezer,
     // "Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic" -> ZuneMusic
-    static string GuessName(string aumid)
+    internal static string GuessName(string aumid)
     {
         string s = aumid; int bang = s.LastIndexOf('!'); if (bang >= 0) s = s.Substring(bang + 1);
         if (s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) s = s.Substring(0, s.Length - 4);
@@ -248,64 +248,103 @@ static class MediaSessions
 // Task Manager. Only runs while the popup is open (reading every process costs a little CPU).
 sealed class TopApps : IDisposable
 {
-    [StructLayout(LayoutKind.Explicit)] struct FMT { [FieldOffset(0)] public uint CStatus; [FieldOffset(8)] public double Value; }
-    [DllImport("pdh.dll", CharSet = CharSet.Unicode)] static extern int PdhOpenQuery(string src, IntPtr user, out IntPtr query);
-    [DllImport("pdh.dll", CharSet = CharSet.Unicode)] static extern int PdhAddEnglishCounter(IntPtr query, string path, IntPtr user, out IntPtr counter);
-    [DllImport("pdh.dll")] static extern int PdhCollectQueryData(IntPtr query);
-    [DllImport("pdh.dll")] static extern int PdhCloseQuery(IntPtr query);
-    [DllImport("pdh.dll", CharSet = CharSet.Unicode)] static extern int PdhGetFormattedCounterArray(IntPtr counter, uint fmt, ref uint size, ref uint count, IntPtr items);
+    // One NtQuerySystemInformation call returns every process with its CPU time and private working set (what
+    // Task Manager shows as Memory) in about a millisecond. PDH's \Process(*) counters took 10-60 ms and hold a
+    // lock the widget's own counters wait on.
+    [DllImport("ntdll.dll")] static extern int NtQuerySystemInformation(int cls, IntPtr buf, int len, out int ret);
+    const int SystemProcessInformation = 5;
+    const int STATUS_INFO_LENGTH_MISMATCH = unchecked((int)0xC0000004);
 
-    IntPtr q, cCpu, cMem; int samples;
-    public readonly List<KeyValuePair<string, double>> Cpu = new List<KeyValuePair<string, double>>(), Mem = new List<KeyValuePair<string, double>>();
+    // Runs on its own thread: a first sample right away, a second one shortly after (CPU % needs two), then once a second.
+    readonly int top;
+    volatile bool stop;
+    volatile int samples;
+    readonly AutoResetEvent wake = new AutoResetEvent(false);
+    volatile List<KeyValuePair<string, double>> cpu = new List<KeyValuePair<string, double>>(), mem = new List<KeyValuePair<string, double>>();
+    public List<KeyValuePair<string, double>> Cpu { get { return cpu; } }
+    public List<KeyValuePair<string, double>> Mem { get { return mem; } }
     public bool HasCpu { get { return samples >= 2; } }
+    public bool HasMem { get { return samples >= 1; } }
+    /// <summary>Raised on the sampling thread after each sample.</summary>
+    public event Action Updated;
 
-    public TopApps()
+    public TopApps(int top)
     {
-        if (PdhOpenQuery(null, IntPtr.Zero, out q) != 0) { q = IntPtr.Zero; return; }
-        PdhAddEnglishCounter(q, @"\Process(*)\% Processor Time", IntPtr.Zero, out cCpu);
-        PdhAddEnglishCounter(q, @"\Process(*)\Working Set - Private", IntPtr.Zero, out cMem);
+        this.top = top;
+        new Thread(Run) { IsBackground = true, Name = "TopApps", Priority = ThreadPriority.BelowNormal }.Start();
     }
 
-    public void Sample(int top)
-    {
-        if (q == IntPtr.Zero) return;
-        PdhCollectQueryData(q); samples++;
-        Fill(Cpu, cCpu, top, Environment.ProcessorCount);
-        Fill(Mem, cMem, top, 1);
-    }
+    struct Prev { public long Create, Time; }
 
-    void Fill(List<KeyValuePair<string, double>> list, IntPtr c, int top, int div)
+    void Run()
     {
-        list.Clear();
-        if (c == IntPtr.Zero) return;
-        uint size = 0, count = 0;
-        PdhGetFormattedCounterArray(c, 0x200 | 0x8000 /*DOUBLE|NOCAP100*/, ref size, ref count, IntPtr.Zero);
-        if (size == 0) return;
-        IntPtr buf = Marshal.AllocHGlobal((int)size);
+        int len = 512 * 1024; IntPtr buf = Marshal.AllocHGlobal(len);
+        var prev = new Dictionary<long, Prev>(); long prevStamp = 0;
         try
         {
-            if (PdhGetFormattedCounterArray(c, 0x200 | 0x8000, ref size, ref count, buf) != 0) return;
-            var sum = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-            int item = IntPtr.Size + 16; // PDH_FMT_COUNTERVALUE_ITEM: name pointer + value
-            for (int i = 0; i < count; i++)
+            while (!stop)
             {
-                IntPtr p = new IntPtr(buf.ToInt64() + i * item);
-                string name = Marshal.PtrToStringUni(Marshal.ReadIntPtr(p));
-                var v = (FMT)Marshal.PtrToStructure(new IntPtr(p.ToInt64() + IntPtr.Size), typeof(FMT));
-                if (name == null || (v.CStatus != 0 && v.CStatus != 1)) continue;
-                int hash = name.IndexOf('#'); if (hash > 0) name = name.Substring(0, hash);
-                if (name == "_Total" || name == "Idle") continue;
-                double val = v.Value / div, cur;
-                sum[name] = sum.TryGetValue(name, out cur) ? cur + val : val;
+                int ret, st;
+                while ((st = NtQuerySystemInformation(SystemProcessInformation, buf, len, out ret)) == STATUS_INFO_LENGTH_MISMATCH)
+                {
+                    Marshal.FreeHGlobal(buf); buf = IntPtr.Zero;
+                    len = Math.Max(len * 2, ret + 64 * 1024); buf = Marshal.AllocHGlobal(len);
+                }
+                if (st != 0) return;
+                long stamp = DateTime.UtcNow.Ticks; // 100 ns units, like the process times
+                var cpuSum = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+                var memSum = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+                var now = new Dictionary<long, Prev>();
+                double span = prevStamp > 0 ? (stamp - prevStamp) * (double)Environment.ProcessorCount : 0;
+                int off = 0;
+                while (true)
+                {
+                    IntPtr p = new IntPtr(buf.ToInt64() + off);
+                    int next = Marshal.ReadInt32(p, 0);
+                    long pid = Marshal.ReadIntPtr(p, 80).ToInt64();
+                    if (pid != 0) // 0 = Idle
+                    {
+                        // SYSTEM_PROCESS_INFORMATION (x64): WorkingSetPrivateSize @8, CreateTime @32, UserTime @40,
+                        // KernelTime @48, ImageName (UNICODE_STRING: length @56, buffer @64), UniqueProcessId @80
+                        long priv = Marshal.ReadInt64(p, 8), create = Marshal.ReadInt64(p, 32);
+                        long time = Marshal.ReadInt64(p, 40) + Marshal.ReadInt64(p, 48);
+                        int nameLen = (ushort)Marshal.ReadInt16(p, 56); IntPtr nameBuf = Marshal.ReadIntPtr(p, 64);
+                        string name = nameBuf == IntPtr.Zero || nameLen == 0 ? "System" : Marshal.PtrToStringUni(nameBuf, nameLen / 2);
+                        if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) name = name.Substring(0, name.Length - 4);
+                        double cur;
+                        memSum[name] = (memSum.TryGetValue(name, out cur) ? cur : 0) + priv;
+                        Prev pv;
+                        if (span > 0 && prev.TryGetValue(pid, out pv) && pv.Create == create && time >= pv.Time)
+                            cpuSum[name] = (cpuSum.TryGetValue(name, out cur) ? cur : 0) + (time - pv.Time) * 100.0 / span;
+                        now[pid] = new Prev { Create = create, Time = time };
+                    }
+                    if (next == 0) break;
+                    off += next;
+                }
+                prev = now;
+                int n = samples + 1;
+                if (prevStamp > 0) cpu = Top(cpuSum);
+                mem = Top(memSum);
+                prevStamp = stamp;
+                samples = n;
+                var h = Updated;
+                if (h != null && !stop) try { h(); } catch { }
+                wake.WaitOne(n == 1 ? 300 : 1000);
             }
-            foreach (var kv in sum) list.Add(kv);
-            list.Sort((a, b) => b.Value.CompareTo(a.Value));
-            if (list.Count > top) list.RemoveRange(top, list.Count - top);
         }
-        finally { Marshal.FreeHGlobal(buf); }
+        catch { }
+        finally { if (buf != IntPtr.Zero) Marshal.FreeHGlobal(buf); }
     }
 
-    public void Dispose() { if (q != IntPtr.Zero) { PdhCloseQuery(q); q = IntPtr.Zero; } }
+    List<KeyValuePair<string, double>> Top(Dictionary<string, double> sum)
+    {
+        var list = new List<KeyValuePair<string, double>>(sum);
+        list.Sort((a, b) => b.Value.CompareTo(a.Value));
+        if (list.Count > top) list.RemoveRange(top, list.Count - top);
+        return list;
+    }
+
+    public void Dispose() { stop = true; Updated = null; wake.Set(); }
 }
 
 // Hands SysWidget's numbers to RivaTuner Statistics Server, which draws them in games' on-screen display (also

@@ -1,4 +1,4 @@
-// SysWidget - the island: mini mode's default style. A rounded strip (or column) of stats; the stat under the
+﻿// SysWidget - the island: mini mode's default style. A rounded strip (or column) of stats; the stat under the
 // mouse opens a card (graphs, the busiest apps, album art and media buttons) that hangs from it, then closes.
 // While open, the window covers the card's area too; outside the shape it's fully transparent, so clicks pass.
 //
@@ -12,6 +12,7 @@ using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 sealed partial class WidgetForm
@@ -30,7 +31,47 @@ sealed partial class WidgetForm
     RectangleF islandSeg;                // the hovered stat (for its highlight)
     DateTime islandAutoUntil;
     readonly List<RectangleF> islandBtns = new List<RectangleF>();
-    readonly System.Windows.Forms.Timer islandAnim = new System.Windows.Forms.Timer { Interval = 15 };
+    readonly System.Windows.Forms.Timer islandAnim = new System.Windows.Forms.Timer { Interval = 10 };
+    // The animation runs on the clock, not on timer ticks (which come late or bunch up): a critically damped
+    // spring for the card's depth and position, so it starts and stops softly, never overshoots, and keeps its
+    // speed when the target changes half-way (pointing at the next stat while the card is still moving).
+    readonly System.Diagnostics.Stopwatch islandClock = System.Diagnostics.Stopwatch.StartNew();
+    double islandLastMs, islandFadeAt;
+    float islandVH, islandVA;
+    float islandL, islandVL;             // the card's length along the strip (a column's card: its height), animated
+    bool islandFresh;                    // opening from nothing: the content fades in as the card grows
+    Bitmap islandPrev;                   // the previous card, fading out while switching
+    bool hiResTimer;
+    const float SpringW = 30f;           // rad/s: ~90% there in 0.13 s, settled in about 0.3 s
+    const double FadeMs = 130;
+    [DllImport("winmm.dll")] static extern uint timeBeginPeriod(uint ms);
+    [DllImport("winmm.dll")] static extern uint timeEndPeriod(uint ms);
+
+    void AnimStart()
+    {
+        if (islandAnim.Enabled) return;
+        islandLastMs = islandClock.Elapsed.TotalMilliseconds;
+        // Windows' default 15.6 ms timer steps make a 10 ms timer tick unevenly (16, 16, 31 ms...): ask for
+        // 1 ms steps, only while animating.
+        if (!hiResTimer) { timeBeginPeriod(1); hiResTimer = true; }
+        islandAnim.Start();
+    }
+
+    void AnimStop()
+    {
+        islandAnim.Stop();
+        if (hiResTimer) { timeEndPeriod(1); hiResTimer = false; }
+    }
+
+    // How far the switch crossfade is (0 = old card, 1 = new card); drops the old card when done.
+    float SwitchFade()
+    {
+        if (islandPrev == null) return 1;
+        float k = (float)((islandClock.Elapsed.TotalMilliseconds - islandFadeAt) / FadeMs);
+        if (k < 1) return Math.Max(0, k * k * (3 - 2 * k));
+        islandPrev.Dispose(); islandPrev = null;
+        return 1;
+    }
     Bitmap artBmp; int artVer = -1;
 
     bool IslandMode { get { return mini && islandStyle; } }
@@ -96,10 +137,11 @@ sealed partial class WidgetForm
     }
 
     // The card in strip coordinates: centred at a, sticking out by depth.
-    RectangleF CardCanon(float a, float depth)
+    RectangleF CardCanon(float a, float depth) { return CardCanon(a, depth, islandL > 0 ? islandL : CardAlong); }
+    RectangleF CardCanon(float a, float depth, float along)
     {
         float full = CardDepth, frac = full > 0 ? Math.Min(1, depth / full) : 0;
-        float w0 = Math.Min(CardAlong, Math.Max(islandSegLen, 40 * s)), w = w0 + (CardAlong - w0) * frac;
+        float w0 = Math.Min(along, Math.Max(islandSegLen, 40 * s)), w = w0 + (along - w0) * frac;
         return new RectangleF(a - w / 2, StripThick - 1, w, depth);
     }
 
@@ -130,12 +172,16 @@ sealed partial class WidgetForm
         float h = Math.Max(islandTargetH, islandCurH);
         RectangleF want;
         if (IslandWide) want = IslandRect(h);
-        else want = RectangleF.Union(RectangleF.Union(islandHome, Map(CardCanon(islandA, h), 0, 0)), Map(CardCanon(islandATarget, h), 0, 0));
+        else
+        {
+            float along = Math.Max(islandL, CardAlong);
+            want = RectangleF.Union(RectangleF.Union(islandHome, Map(CardCanon(islandA, h, along), 0, 0)), Map(CardCanon(islandATarget, h, along), 0, 0));
+        }
         var r = Rectangle.Round(want); int f = (int)Math.Ceiling(Fillet);
         r.Inflate(M + f, M + f);
         var cur = new Rectangle(Left, Top, Width, Height);
         var u = Rectangle.Union(cur, r);
-        if (u != cur) SetBounds(u.X, u.Y, u.Width, u.Height);
+        if (u != cur) SetWindowRect(u);
     }
 
     // ---- open / switch / close
@@ -159,49 +205,67 @@ sealed partial class WidgetForm
             RectangleF seg; islandSegLen = sectionRects.TryGetValue(id, out seg) ? (IslandVert ? seg.Height : seg.Width) : 0;
         }
         islandSwitching = islandCurH > 0.5f;
+        // Switching to another stat: the old card fades out while the new one fades in.
+        if (islandSwitching && id != islandId && islandContent != null)
+        {
+            if (islandPrev != null) islandPrev.Dispose();
+            islandPrev = islandContent; islandContent = null;
+            islandFadeAt = islandClock.Elapsed.TotalMilliseconds;
+        }
         islandId = id;
-        bool apps = id == "cpu" || id == "ram";
-        if (!apps && topApps != null) { topApps.Dispose(); topApps = null; }
-        if (apps && topApps == null) { topApps = new TopApps(); topApps.Sample(5); }
+        if (id == "cpu" || id == "ram") StartTopApps(); // keeps measuring until the island closes
         islandTargetH = -1; // so BuildIslandContent doesn't retarget
         BuildIslandContent();
         islandTargetH = CardDepth;
         islandATarget = ATarget(id);
-        if (first || islandCurH < 0.5f) islandA = islandATarget;
+        if (first || islandCurH < 0.5f) { islandA = islandATarget; islandVA = 0; islandL = CardAlong; islandVL = 0; islandFresh = true; }
+        else islandFresh = false;
         EnsureIslandWindow();
-        islandAnim.Start();
+        AnimStart();
     }
 
     void CloseIsland()
     {
         if (!islandOpen || islandTargetH == 0) return;
         islandSwitching = false; islandAuto = false; islandTargetH = 0;
-        islandAnim.Start();
+        AnimStart();
     }
 
     void CloseIslandNow() { if (islandOpen) FinishClose(); }
 
     void FinishClose()
     {
-        islandAnim.Stop();
-        islandOpen = false; islandId = null; islandAuto = false; islandCurH = islandTargetH = 0; hoverId = null; hoverMs = 0;
+        AnimStop();
+        islandOpen = false; islandId = null; islandAuto = false; islandCurH = islandTargetH = 0; islandVH = islandVA = 0; islandL = islandVL = 0; islandFresh = false; hoverId = null; hoverMs = 0;
         if (islandContent != null) { islandContent.Dispose(); islandContent = null; }
-        if (topApps != null) { topApps.Dispose(); topApps = null; }
+        if (islandPrev != null) { islandPrev.Dispose(); islandPrev = null; }
+        StopTopApps();
         var home = islandHome;
-        SetBounds(home.X - M, home.Y - M, W + 2 * M, H + 2 * M);
+        SetWindowRect(new Rectangle(home.X - M, home.Y - M, W + 2 * M, H + 2 * M));
         Render();
     }
 
-    // Eases toward the target (about 0.2 s).
+    // One frame: moves by the time since the last one (a late tick moves further instead of slowing down).
     void IslandStep()
     {
-        float d = islandTargetH - islandCurH, da = islandATarget - islandA;
-        if (Math.Abs(d) < 0.6f && Math.Abs(da) < 0.6f)
+        double now = islandClock.Elapsed.TotalMilliseconds;
+        float dt = (float)(Math.Min(50, Math.Max(0, now - islandLastMs)) / 1000); islandLastMs = now;
+        int n = Math.Max(1, (int)Math.Ceiling(dt / 0.004f)); float h = dt / n;
+        for (int i = 0; i < n; i++)
         {
-            islandCurH = islandTargetH; islandA = islandATarget; islandAnim.Stop(); islandSwitching = false;
-            if (islandTargetH == 0) { FinishClose(); return; }
+            islandVH += (-SpringW * SpringW * (islandCurH - islandTargetH) - 2 * SpringW * islandVH) * h; islandCurH += islandVH * h;
+            islandVA += (-SpringW * SpringW * (islandA - islandATarget) - 2 * SpringW * islandVA) * h; islandA += islandVA * h;
+            islandVL += (-SpringW * SpringW * (islandL - CardAlong) - 2 * SpringW * islandVL) * h; islandL += islandVL * h;
         }
-        else { islandCurH += d * 0.3f; islandA += da * 0.3f; }
+        if (islandTargetH == 0 && islandCurH < 0) { islandCurH = 0; islandVH = 0; }
+        bool settled = Math.Abs(islandTargetH - islandCurH) < 0.5f && Math.Abs(islandATarget - islandA) < 0.5f
+            && Math.Abs(CardAlong - islandL) < 0.5f && Math.Abs(islandVH) < 30 && Math.Abs(islandVA) < 30 && Math.Abs(islandVL) < 30;
+        if (settled)
+        {
+            islandCurH = islandTargetH; islandA = islandATarget; islandL = CardAlong; islandVH = islandVA = islandVL = 0; islandFresh = false;
+            if (islandTargetH == 0) { FinishClose(); return; }
+            if (islandPrev == null || SwitchFade() >= 1) { AnimStop(); islandSwitching = false; }
+        }
         Render();
     }
 
@@ -212,7 +276,7 @@ sealed partial class WidgetForm
         if (!OverWidget(c))
         {
             if (islandOpen && !islandAuto) { islandLeaveMs += hoverTimer.Interval; if (islandLeaveMs >= 300) CloseIsland(); }
-            if (!islandOpen || islandTargetH == 0) { hoverTimer.Stop(); hoverId = null; hoverMs = 0; }
+            if (!islandOpen || islandTargetH == 0) { hoverTimer.Stop(); hoverId = null; hoverMs = 0; if (!islandOpen) StopTopApps(); }
             return;
         }
         islandLeaveMs = 0;
@@ -230,6 +294,7 @@ sealed partial class WidgetForm
             return;
         }
         if (id != hoverId) { hoverId = id; hoverMs = 0; }
+        if (id == "cpu" || id == "ram") StartTopApps(); // so the busiest apps are ready when the card opens
         hoverMs += hoverTimer.Interval;
         if (hoverMs >= 250) OpenIsland(id);
     }
@@ -247,7 +312,6 @@ sealed partial class WidgetForm
     {
         if (islandOpen)
         {
-            if (topApps != null) topApps.Sample(5);
             if (islandTargetH != 0) BuildIslandContent();
             if (islandAuto && DateTime.UtcNow > islandAutoUntil && !OverWidget(Cursor.Position)) CloseIsland();
         }
@@ -283,7 +347,7 @@ sealed partial class WidgetForm
         if (islandOpen && islandTargetH > 0 && ch != oldH)
         {
             islandTargetH = CardDepth; islandATarget = ATarget(islandId);
-            EnsureIslandWindow(); islandAnim.Start();
+            EnsureIslandWindow(); AnimStart();
         }
     }
 
@@ -308,7 +372,7 @@ sealed partial class WidgetForm
     List<string[]> TopRows(bool isCpu, List<float> shares)
     {
         var rows = new List<string[]>();
-        if (topApps == null || (isCpu && !topApps.HasCpu)) return rows;
+        if (topApps == null || (isCpu ? !topApps.HasCpu : !topApps.HasMem)) return rows;
         var list = isCpu ? topApps.Cpu : topApps.Mem;
         double max = 0; foreach (var kv in list) max = Math.Max(max, kv.Value);
         foreach (var kv in list)
@@ -326,7 +390,7 @@ sealed partial class WidgetForm
         Txt(g, Lang.T(isCpu ? "apps.cpu" : "apps.ram").ToUpper(CultureInfo.CurrentUICulture), fSmall, brDim, x, y, sf);
         y += smallH + 3 * s;
         var shares = new List<float>(); var rows = TopRows(isCpu, shares);
-        if (rows.Count == 0) { Txt(g, "…", fSmall, brDim, x, y, sf); return y + smallH; }
+        if (rows.Count == 0) { Txt(g, "…", fSmall, brDim, x, y, sf); return y + 5 * (smallH + 8 * s) - 4 * s; }
         Color c = Shade(ColorOf(isCpu ? "cpu" : "ram"));
         for (int i = 0; i < rows.Count; i++)
         {
@@ -470,7 +534,7 @@ sealed partial class WidgetForm
                     Tile(g, draw, ref y, ref any, "net", null, c, "\u2193 " + RateNet(down), brValue, "\u2193 " + wide, upOn ? "\u2191 " + RateNet(up) : null, brLabel, "\u2191 " + wide);
                     break;
                 }
-                case "ping": Tile(g, draw, ref y, ref any, "ping", null, c, PingText(pinger.Ms), brValue, Lang.F("unit.ms", "999"), null, null, null); break;
+                case "ping": Tile(g, draw, ref y, ref any, "ping", null, c, float.IsNaN(pinger.Ms) ? "\u2014" : PingText(pinger.Ms), float.IsNaN(pinger.Ms) ? brDim : brValue, Lang.F("unit.ms", "999"), null, null, null); break;
                 case "battery": Tile(g, draw, ref y, ref any, "battery", null, c, Battery.Percent >= 0 ? Pct(Battery.Percent) : "\u2014", brValue, "100%", null, null, null); break;
                 case "disk":
                     if (Opt(id, "free"))
@@ -533,13 +597,13 @@ sealed partial class WidgetForm
         if (v1 != null || t1 != null)
         {
             if (t1 != null) colW = Math.Max(colW, g.MeasureString(t1, fValue, PointF.Empty, sf).Width);
-            if (draw && v1 != null) Center(g, v1, fValue, b1, y);
+            if (draw && v1 != null) Center(g, Fit(g, v1, fValue, W - 6 * s), fValue, b1, y);
             y += 16 * s;
         }
         if (v2 != null)
         {
             if (t2 != null) colW = Math.Max(colW, g.MeasureString(t2, fSmall, PointF.Empty, sf).Width);
-            if (draw) Center(g, v2, fSmall, b2, y);
+            if (draw) Center(g, Fit(g, v2, fSmall, W - 6 * s), fSmall, b2, y);
             y += 14 * s;
         }
         y += 8 * s;
@@ -641,12 +705,8 @@ sealed partial class WidgetForm
     // ---- drawing the open island
     void RenderIsland()
     {
-        var win = new Rectangle(Left, Top, Width, Height);
-        if (canvas == null || canvas.Width != win.Width || canvas.Height != win.Height)
-        {
-            if (canvas != null) canvas.Dispose();
-            canvas = new Bitmap(win.Width, win.Height, PixelFormat.Format32bppArgb);
-        }
+        var win = WinRect;
+        EnsureCanvas(win.Width, win.Height);
         if (IslandWide) RenderWide(win); else RenderTab(win);
         Present(canvas);
     }
@@ -729,8 +789,14 @@ sealed partial class WidgetForm
                         default: cx = strip.X + islandA - cw / 2; cy = strip.Bottom - 1; break;
                     }
                     islandContentAt = new PointF(win.X + cx, win.Y + cy);
-                    float alpha = islandSwitching ? 1 : Math.Min(1, islandCurH / Math.Max(1, CardDepth));
-                    DrawFaded(g, islandContent, cx, cy, alpha);
+                    float alpha = islandFresh || islandTargetH == 0 ? Math.Min(1, islandCurH / Math.Max(1, CardDepth)) : 1, k = SwitchFade();
+                    if (islandPrev != null)
+                    {
+                        float ph = islandPrev.Height, px = cx, py = cy;
+                        if (islandDir == 1) py = strip.Top + 1 - ph; else if (islandDir >= 2) py = strip.Y + islandA - ph / 2;
+                        DrawFaded(g, islandPrev, px, py, alpha * (1 - k));
+                    }
+                    DrawFaded(g, islandContent, cx, cy, alpha * k);
                     g.Clip = saved;
                 }
             }
@@ -790,8 +856,9 @@ sealed partial class WidgetForm
                 float cx = Math.Max(local.X, Math.Min(segC - cw / 2, local.Right - cw));
                 float cy = up ? strip.Top - islandContent.Height : strip.Bottom;
                 islandContentAt = new PointF(win.X + cx, win.Y + cy);
-                float alpha = islandSwitching ? 1 : Math.Min(1, islandCurH / Math.Max(1, islandContent.Height));
-                DrawFaded(g, islandContent, cx, cy, alpha);
+                float alpha = islandFresh || islandTargetH == 0 ? Math.Min(1, islandCurH / Math.Max(1, islandContent.Height)) : 1, k = SwitchFade();
+                if (islandPrev != null) DrawFaded(g, islandPrev, cx, up ? strip.Top - islandPrev.Height : strip.Bottom, alpha * (1 - k));
+                DrawFaded(g, islandContent, cx, cy, alpha * k);
                 float ly = up ? strip.Top : strip.Bottom;
                 using (var p = new Pen(InkA(20))) g.DrawLine(p, local.X + pad, ly, local.Right - pad, ly);
                 g.Clip = saved;
@@ -827,6 +894,7 @@ sealed partial class WidgetForm
     static void DrawFaded(Graphics g, Bitmap b, float x, float y, float a)
     {
         var dest = new Rectangle((int)Math.Round(x), (int)Math.Round(y), b.Width, b.Height);
+        if (a <= 0.01f) return;
         if (a >= 0.99f) { g.DrawImage(b, dest, 0, 0, b.Width, b.Height, GraphicsUnit.Pixel); return; }
         using (var ia = new ImageAttributes())
         {

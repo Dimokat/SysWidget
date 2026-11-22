@@ -62,6 +62,12 @@ static class Program
     [STAThread]
     static void Main(string[] args)
     {
+        if (args.Length >= 1 && args[0] == "--selftest")
+        {
+            // Off-screen checks of every mode and language (see SelfTest.cs); runs beside a running widget.
+            SetProcessDPIAware(); Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
+            Environment.Exit(WidgetForm.RunSelfTest(args.Length > 1 ? args[1] : "selftest.txt"));
+        }
         if (args.Length == 2 && args[0] == "--snapshot")
         {
             // Renders one frame to a PNG and exits (used for testing without touching the screen).
@@ -326,6 +332,7 @@ sealed partial class WidgetForm : Form
     delegate void WinEventProc(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
 
     [DllImport("user32.dll")] static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr hdcDst, IntPtr pptDst, ref SIZE psize, IntPtr hdcSrc, ref POINT pptSrc, int crKey, ref BLENDFUNCTION pblend, int dwFlags);
+    [DllImport("user32.dll", EntryPoint = "UpdateLayeredWindow")] static extern bool UpdateLayeredWindowAt(IntPtr hwnd, IntPtr hdcDst, ref POINT pptDst, ref SIZE psize, IntPtr hdcSrc, ref POINT pptSrc, int crKey, ref BLENDFUNCTION pblend, int dwFlags);
     // Same call with only the opacity changed (no new picture), used for fading.
     [DllImport("user32.dll", EntryPoint = "UpdateLayeredWindow")] static extern bool UpdateLayeredAlpha(IntPtr hwnd, IntPtr hdcDst, IntPtr pptDst, IntPtr psize, IntPtr hdcSrc, IntPtr pptSrc, int crKey, ref BLENDFUNCTION pblend, int dwFlags);
     [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr hwnd);
@@ -472,7 +479,24 @@ sealed partial class WidgetForm : Form
     int M;
     bool dL, dT, dR, dB;
     Size WinSize() { return new Size(W + 2 * M, H + 2 * M); }
-    Rectangle Body { get { return islandOpen ? islandHome : new Rectangle(Left + M, Top + M, W, H); } }
+    Rectangle Body { get { return islandOpen ? islandHome : pendingWin.HasValue ? new Rectangle(pendingWin.Value.X + M, pendingWin.Value.Y + M, W, H) : new Rectangle(Left + M, Top + M, W, H); } }
+
+    // Moving or resizing a layered window and then giving it its new picture are two steps, and Windows can show
+    // a frame in between: the old picture at the new place, a visible jump. Instead the new picture is drawn for
+    // the new rectangle and UpdateLayeredWindow moves, resizes and repaints the window in one go.
+    Rectangle? pendingWin; bool presenting;
+    Rectangle WinRect { get { return pendingWin ?? new Rectangle(Left, Top, Width, Height); } }
+    void SetWindowRect(Rectangle r)
+    {
+        if (r == new Rectangle(Left, Top, Width, Height)) return;
+        pendingWin = r;
+        try { Render(); }
+        finally { pendingWin = null; }
+        // WinForms doesn't always hear about a move made by UpdateLayeredWindow: re-read the real rectangle.
+        presenting = true;
+        try { UpdateBounds(); } finally { presenting = false; }
+        if (r != new Rectangle(Left, Top, Width, Height)) SetBounds(r.X, r.Y, r.Width, r.Height); // nothing was drawn: just move
+    }
     void PlaceBody(Point p) { Location = new Point(p.X - M, p.Y - M); }
 
     void UpdateDock(Rectangle b)
@@ -484,7 +508,7 @@ sealed partial class WidgetForm : Form
     protected override void OnLocationChanged(EventArgs e)
     {
         base.OnLocationChanged(e);
-        if (IsHandleCreated && !inMove) Render();
+        if (IsHandleCreated && !inMove && !presenting) Render();
     }
 
     // Panel outline: rounded corners when free; square where two docked edges meet;
@@ -623,7 +647,7 @@ sealed partial class WidgetForm : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        timer.Stop(); ctTimer.Stop(); fadeTimer.Stop(); hoverTimer.Stop(); islandAnim.Stop();
+        timer.Stop(); ctTimer.Stop(); fadeTimer.Stop(); hoverTimer.Stop(); AnimStop();
         if (fgHook != IntPtr.Zero) UnhookWinEvent(fgHook);
         UnregisterHotKey(Handle, 1); UnregisterHotKey(Handle, 2);
         if (rtss) Rtss.Clear();
@@ -668,7 +692,8 @@ sealed partial class WidgetForm : Form
         NormalizeLayout();
         pdh.Collect();
         RefreshNics(); RefreshDrives(); netClock.Start();
-        fps = new FpsCounter(); fps.Start();
+        fps = new FpsCounter();
+        if (!selfTesting) fps.Start(); else fps.Error = "test"; // the self-test leaves the running widget's FPS session alone
     }
 
     void OnTick()
@@ -904,7 +929,7 @@ sealed partial class WidgetForm : Form
         if (islandOpen) { RenderIsland(); return; }
         if (dock) UpdateDock(Body);
         var ws = WinSize();
-        if (canvas == null || canvas.Width != ws.Width || canvas.Height != ws.Height) { if (canvas != null) canvas.Dispose(); canvas = new Bitmap(ws.Width, ws.Height, PixelFormat.Format32bppArgb); }
+        EnsureCanvas(ws.Width, ws.Height);
         using (var g = Graphics.FromImage(canvas))
         {
             g.Clear(Color.Transparent);
@@ -933,8 +958,63 @@ sealed partial class WidgetForm : Form
         }
     }
 
+    // The window's pixels live in one DIB that GDI+ draws into directly (premultiplied, the format
+    // UpdateLayeredWindow wants), so a frame doesn't copy and convert the whole bitmap first.
+    [StructLayout(LayoutKind.Sequential)]
+    struct BITMAPINFOHEADER { public int biSize, biWidth, biHeight; public short biPlanes, biBitCount; public int biCompression, biSizeImage, biXPelsPerMeter, biYPelsPerMeter, biClrUsed, biClrImportant; }
+    [DllImport("gdi32.dll")] static extern IntPtr CreateDIBSection(IntPtr dc, ref BITMAPINFOHEADER bmi, uint usage, out IntPtr bits, IntPtr section, uint offset);
+    [DllImport("gdi32.dll")] static extern bool GdiFlush();
+    IntPtr canvasDC, canvasDib, canvasOld;
+
+    void EnsureCanvas(int w, int h)
+    {
+        w = Math.Max(1, w); h = Math.Max(1, h);
+        if (canvas != null && canvas.Width == w && canvas.Height == h) return;
+        FreeCanvas();
+        var bi = new BITMAPINFOHEADER { biSize = 40, biWidth = w, biHeight = -h, biPlanes = 1, biBitCount = 32 };
+        IntPtr bits = IntPtr.Zero, screen = GetDC(IntPtr.Zero);
+        canvasDC = CreateCompatibleDC(screen); ReleaseDC(IntPtr.Zero, screen);
+        canvasDib = canvasDC == IntPtr.Zero ? IntPtr.Zero : CreateDIBSection(canvasDC, ref bi, 0, out bits, IntPtr.Zero, 0);
+        if (canvasDib == IntPtr.Zero)
+        {
+            if (canvasDC != IntPtr.Zero) DeleteDC(canvasDC);
+            canvasDC = IntPtr.Zero;
+            canvas = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+            return;
+        }
+        canvasOld = SelectObject(canvasDC, canvasDib);
+        canvas = new Bitmap(w, h, w * 4, PixelFormat.Format32bppPArgb, bits);
+    }
+
+    void FreeCanvas()
+    {
+        if (canvas != null) { canvas.Dispose(); canvas = null; }
+        if (canvasDC != IntPtr.Zero) { SelectObject(canvasDC, canvasOld); DeleteObject(canvasDib); DeleteDC(canvasDC); }
+        canvasDC = canvasDib = canvasOld = IntPtr.Zero;
+    }
+
     void Present(Bitmap bmp)
     {
+        if (bmp == canvas && canvasDC != IntPtr.Zero)
+        {
+            GdiFlush();
+            IntPtr sdc = GetDC(IntPtr.Zero);
+            try
+            {
+                var sz = new SIZE(bmp.Width, bmp.Height); var p0 = new POINT();
+                var bf = new BLENDFUNCTION { BlendOp = 0, BlendFlags = 0, SourceConstantAlpha = Alpha(), AlphaFormat = 1 };
+                if (pendingWin.HasValue && pendingWin.Value.Size == bmp.Size)
+                {
+                    var at = new POINT { x = pendingWin.Value.X, y = pendingWin.Value.Y };
+                    presenting = true;
+                    try { UpdateLayeredWindowAt(Handle, sdc, ref at, ref sz, canvasDC, ref p0, 0, ref bf, 2 /*ULW_ALPHA*/); }
+                    finally { presenting = false; }
+                }
+                else UpdateLayeredWindow(Handle, sdc, IntPtr.Zero, ref sz, canvasDC, ref p0, 0, ref bf, 2 /*ULW_ALPHA*/);
+            }
+            finally { ReleaseDC(IntPtr.Zero, sdc); }
+            return;
+        }
         IntPtr screen = GetDC(IntPtr.Zero), mem = CreateCompatibleDC(screen), hbmp = IntPtr.Zero, old = IntPtr.Zero;
         try
         {
@@ -1178,6 +1258,8 @@ sealed partial class WidgetForm : Form
     static void Txt(Graphics g, string t, Font f, Brush b, float x, float y, StringFormat fmt)
     {
         g.DrawString(t, f, b, (float)Math.Round(x), (float)Math.Round(y), fmt);
+        if (textLog != null && !string.IsNullOrEmpty(t)) // the self-test checks where texts land
+            textLog.Add(new KeyValuePair<string, RectangleF>(t, new RectangleF((float)Math.Round(x), (float)Math.Round(y), g.MeasureString(t, f, PointF.Empty, fmt).Width, f.GetHeight(g))));
     }
 
     void Header(Graphics g, ref float y, string label, Color accent, string v1, Brush b1, string v2, Brush b2)
@@ -1467,6 +1549,17 @@ sealed partial class WidgetForm : Form
     {
         if (menu != null && menu.Visible) return;
         SetWindowPos(Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        KeepSettingsReachable();
+    }
+
+    // Settings over (part of) the always-on-top widget would end up under it, title bar and all: while they
+    // overlap, Settings stays above the widget.
+    internal void KeepSettingsReachable()
+    {
+        if (settings == null || settings.IsDisposed || !settings.Visible || settings.WindowState == FormWindowState.Minimized) return;
+        bool over = onTop && settings.Bounds.IntersectsWith(new Rectangle(Left, Top, Width, Height));
+        if (settings.TopMost != over) settings.TopMost = over;
+        if (over) SetWindowPos(settings.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
     void SetOnTop(bool value)
@@ -1782,7 +1875,7 @@ sealed partial class WidgetForm : Form
     }
 
     // ---- busiest apps: pointing at CPU or RAM opens a small list next to the widget
-    readonly System.Windows.Forms.Timer hoverTimer = new System.Windows.Forms.Timer { Interval = 100 };
+    readonly System.Windows.Forms.Timer hoverTimer = new System.Windows.Forms.Timer { Interval = 40 };
     readonly Dictionary<string, RectangleF> sectionRects = new Dictionary<string, RectangleF>();
     bool hoverApps = true; string hoverId; int hoverMs; AppsPopup popup; TopApps topApps;
 
@@ -1792,7 +1885,7 @@ sealed partial class WidgetForm : Form
     {
         if (IslandMode || islandOpen) { IslandHover(); return; }
         Point c = Cursor.Position; var b = Body;
-        if (!b.Contains(c)) { hoverTimer.Stop(); hoverId = null; HidePopup(); return; }
+        if (!b.Contains(c)) { hoverTimer.Stop(); hoverId = null; HidePopup(); StopTopApps(); return; }
         bool usable = hoverApps && !inMove && !hidden && !(menu != null && menu.Visible) && !(PassThrough && !interactive);
         string id = null;
         if (usable)
@@ -1800,19 +1893,35 @@ sealed partial class WidgetForm : Form
                 if ((kv.Key == "cpu" || kv.Key == "ram") && kv.Value.Contains(c.X - b.X, c.Y - b.Y)) { id = kv.Key; break; }
         if (id != hoverId) { hoverId = id; hoverMs = 0; HidePopup(); }
         if (id == null) return;
+        StartTopApps(); // starts measuring now, so the list is ready when the popup shows
         hoverMs += hoverTimer.Interval;
         int t = hoverMs - 450; // wait a moment, so passing over doesn't flash a popup
-        if (t < 0) return;
-        if (t < hoverTimer.Interval || t % 1000 < hoverTimer.Interval)
+        if (t >= 0 && t < hoverTimer.Interval) ShowPopup(id);
+    }
+
+    void StartTopApps()
+    {
+        if (topApps != null) return;
+        topApps = new TopApps(5);
+        topApps.Updated += () => { try { if (IsHandleCreated && !IsDisposed) BeginInvoke((Action)TopAppsUpdated); } catch { } };
+    }
+
+    void StopTopApps() { if (topApps != null) { topApps.Dispose(); topApps = null; } }
+
+    // A new sample of the busiest apps (on the UI thread): refresh whatever shows them.
+    void TopAppsUpdated()
+    {
+        if (topApps == null) return;
+        if (islandOpen)
         {
-            if (topApps == null) topApps = new TopApps();
-            topApps.Sample(5);
-            ShowPopup(id);
+            if ((islandId == "cpu" || islandId == "ram") && islandTargetH != 0) { BuildIslandContent(); if (!islandAnim.Enabled) Render(); }
         }
+        else if (popup != null && !popup.IsDisposed && popup.Visible && (hoverId == "cpu" || hoverId == "ram")) ShowPopup(hoverId);
     }
 
     void ShowPopup(string id)
     {
+        if (topApps == null) return;
         if (popup == null || popup.IsDisposed) popup = new AppsPopup(dpi);
         bool isCpu = id == "cpu";
         var list = isCpu ? topApps.Cpu : topApps.Mem;
@@ -1849,7 +1958,6 @@ sealed partial class WidgetForm : Form
     void HidePopup()
     {
         if (popup != null && !popup.IsDisposed && popup.Visible) popup.Hide();
-        if (topApps != null) { topApps.Dispose(); topApps = null; }
     }
 
     // ---- settings file: export to a file, or import one (the widget restarts to apply it)
@@ -1920,6 +2028,20 @@ sealed partial class WidgetForm : Form
         if (settings != null && !settings.IsDisposed) settings.Invalidate();
     }
 
+    // Where Settings opens: next to the widget, so the widget never covers it: right, left, below or above it,
+    // the first that fits on the screen (a mini row along the top of the screen: below it). Nothing fits: below
+    // or above, whichever has more room, and Settings stays above the widget (KeepSettingsReachable).
+    internal Point SettingsSpot(Size sz, Rectangle b, Rectangle wa)
+    {
+        int gap = (int)Math.Round(12 * dpi);
+        int cx = b.Left + (b.Width - sz.Width) / 2, cy = Math.Max(wa.Top, Math.Min(b.Top, wa.Bottom - sz.Height));
+        var beside = new[] { new Point(b.Right + gap, cy), new Point(b.Left - gap - sz.Width, cy) };
+        var across = new[] { new Point(cx, b.Bottom + gap), new Point(cx, b.Top - gap - sz.Height) };
+        foreach (var p in beside) { var c = ClampTo(p, sz, wa); if (c.X == p.X && !new Rectangle(c, sz).IntersectsWith(b)) return c; }
+        foreach (var p in across) { var c = ClampTo(p, sz, wa); if (c.Y == p.Y && !new Rectangle(c, sz).IntersectsWith(b)) return c; }
+        return ClampTo(b.Top - wa.Top > wa.Bottom - b.Bottom ? across[1] : across[0], sz, wa);
+    }
+
     void OpenSettings()
     {
         if (settings == null || settings.IsDisposed)
@@ -1928,19 +2050,15 @@ sealed partial class WidgetForm : Form
             settings = new SettingsWindow(this, dpi);
             try { settings.Icon = AppIcon(new Size(32, 32)); } catch { }
             settings.Reflow(); // final height, before placing it
-            // Next to the widget (right side if there's room, else left), so the widget never covers it.
-            var b = Body; var wa = Screen.FromRectangle(b).WorkingArea; int gap = (int)Math.Round(12 * dpi);
-            int x = b.Right + gap;
-            if (x + settings.Width > wa.Right) x = b.Left - gap - settings.Width;
-            if (x < wa.Left) x = Math.Max(wa.Left, Math.Min(wa.Right - settings.Width, b.Left + (b.Width - settings.Width) / 2));
-            int y = Math.Max(wa.Top, Math.Min(b.Top, wa.Bottom - settings.Height));
-            settings.Location = new Point(x, y);
-            settings.TopMost = new Rectangle(settings.Location, settings.Size).IntersectsWith(b); // no room beside it: stay above the widget
+            var at = SettingsSpot(settings.Size, Body, Screen.FromRectangle(Body).WorkingArea);
+            settings.Location = at;
+            settings.TopMost = onTop && new Rectangle(at, settings.Size).IntersectsWith(new Rectangle(Left, Top, Width, Height));
             settings.FormClosed += delegate { settings = null; };
             settings.Show();
         }
         if (settings.WindowState == FormWindowState.Minimized) settings.WindowState = FormWindowState.Normal;
         settings.Activate();
+        KeepSettingsReachable();
     }
 
     // ------------------------------------------------------------------ menu / settings
@@ -2198,7 +2316,7 @@ sealed partial class WidgetForm : Form
         tray = new NotifyIcon { Icon = AppIcon(SystemInformation.SmallIconSize), Text = "SysWidget", ContextMenuStrip = menu };
         tray.MouseClick += (o, e) => { if (e.Button == MouseButtons.Left) SetHidden(!hidden); };
         tray.BalloonTipClicked += delegate { if (balloonUpdate) StartUpdate(); else if (balloonUrl != null) OpenUrl(balloonUrl); else if (balloonTaskMgr) OpenTaskManager(); };
-        tray.Visible = true;
+        tray.Visible = !selfTesting;
     }
 
     void SetHidden(bool h)
@@ -2305,6 +2423,23 @@ sealed partial class WidgetForm : Form
         updTimer.Start();
     }
 
+    // GitHub's "latest release" JSON -> the tag (only if newer than us), its page, the zip and the zip's SHA-256
+    // (from the release notes, which the release workflow writes). The zip is only accepted from this repo.
+    internal static bool ParseRelease(string json, out string tag, out string page, out string zipUrl, out string sha)
+    {
+        tag = page = zipUrl = sha = null;
+        var tm = Regex.Match(json, "\"tag_name\"\\s*:\\s*\"v?([0-9]+(?:\\.[0-9]+){1,3})\"");
+        var um = Regex.Match(json, "\"html_url\"\\s*:\\s*\"(https://github\\.com/[^\"]+/releases/tag/[^\"]+)\"");
+        if (!tm.Success || new Version(tm.Groups[1].Value) <= new Version(VersionText)) return false;
+        tag = "v" + tm.Groups[1].Value;
+        page = um.Success ? um.Groups[1].Value : "https://github.com/" + Repo + "/releases/latest";
+        var zm = Regex.Match(json, "\"browser_download_url\"\\s*:\\s*\"(https://github\\.com/" + Regex.Escape(Repo) + "/releases/download/[^\"]+\\.zip)\"");
+        var sm = Regex.Match(json, "\\.zip`?\\s*:\\s*`?([0-9a-fA-F]{64})");
+        zipUrl = zm.Success ? zm.Groups[1].Value : null;
+        sha = sm.Success ? sm.Groups[1].Value.ToLowerInvariant() : null;
+        return true;
+    }
+
     void CheckForUpdate()
     {
         if (!checkUpdates) return;
@@ -2318,14 +2453,8 @@ sealed partial class WidgetForm : Form
                 req.UserAgent = "SysWidget/" + VersionText; req.Accept = "application/vnd.github+json"; req.Timeout = 15000;
                 string json;
                 using (var resp = req.GetResponse()) using (var rd = new StreamReader(resp.GetResponseStream())) json = rd.ReadToEnd();
-                var tag = Regex.Match(json, "\"tag_name\"\\s*:\\s*\"v?([0-9]+(?:\\.[0-9]+){1,3})\"");
-                var url = Regex.Match(json, "\"html_url\"\\s*:\\s*\"(https://github\\.com/[^\"]+/releases/tag/[^\"]+)\"");
-                if (!tag.Success || new Version(tag.Groups[1].Value) <= new Version(VersionText)) return;
-                string t = "v" + tag.Groups[1].Value, u = url.Success ? url.Groups[1].Value : "https://github.com/" + Repo + "/releases/latest";
-                // The release zip, and its SHA-256 from the release notes (the release workflow writes it there).
-                var zip = Regex.Match(json, "\"browser_download_url\"\\s*:\\s*\"(https://github\\.com/" + Regex.Escape(Repo) + "/releases/download/[^\"]+\\.zip)\"");
-                var sha = Regex.Match(json, "\\.zip`?\\s*:\\s*`?([0-9a-fA-F]{64})");
-                string z = zip.Success ? zip.Groups[1].Value : null, h = sha.Success ? sha.Groups[1].Value.ToLowerInvariant() : null;
+                string t, u, z, h;
+                if (!ParseRelease(json, out t, out u, out z, out h)) return;
                 BeginInvoke((MethodInvoker)delegate
                 {
                     updateTag = t; updateUrl = u; updateZip = z; updateSha = h; if (!hidden) Render();
@@ -2584,6 +2713,7 @@ sealed partial class WidgetForm : Form
 
     void SaveSettings()
     {
+        if (selfTesting) return; // the self-test reads your settings but never writes them
         try
         {
             File.WriteAllLines(iniPath, new[] {
