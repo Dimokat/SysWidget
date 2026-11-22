@@ -1,4 +1,4 @@
-// SysWidget Setup - installer/uninstaller. Author: Dimokat.
+﻿// SysWidget Setup - installer/uninstaller. Author: Dimokat.
 // Ships next to SysWidget.exe (in the release zip) and copies it into Program Files.
 // Build (see build.bat): needs SysWidget.ico, which is embedded for the window logo.
 using System;
@@ -29,14 +29,39 @@ static class Setup
     static string DeskLnk { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), "SysWidget.lnk"); } }
 
     [STAThread]
-    static void Main(string[] args)
+    static int Main(string[] args)
     {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Lang.Load(""); // the Windows display language
-        if (args.Length > 0 && args[0].Equals("/update", StringComparison.OrdinalIgnoreCase)) { SilentUpdate(); return; }
-        bool uninstall = args.Length > 0 && args[0].Equals("/uninstall", StringComparison.OrdinalIgnoreCase);
+        Func<string, bool> has = a => Array.Exists(args, x => x.Equals(a, StringComparison.OrdinalIgnoreCase));
+        if (has("/update")) { SilentUpdate(); return 0; }
+        bool uninstall = has("/uninstall");
+        if (has("/silent") || has("/quiet") || has("/S")) return uninstall ? SilentUninstall() : SilentInstall();
         Application.Run(new SetupForm(uninstall));
+        return 0;
+    }
+
+    // "Setup.exe /silent" (package managers such as winget): installs, or updates keeping the current choices
+    // (a new install gets the defaults: startup task and Start menu shortcut). No windows; exit code 0 = done.
+    // A widget that was running is started again.
+    static int SilentInstall()
+    {
+        try
+        {
+            bool inst = Installed, running = Process.GetProcessesByName("SysWidget").Length > 0;
+            bool startup = !inst || HasStartupTask, startMenu = !inst || HasStartMenuShortcut, desktop = inst && HasDesktopShortcut;
+            Install(startup, startMenu, desktop, s => { });
+            if (running) Launch(startup);
+            return 0;
+        }
+        catch { return 1; }
+    }
+
+    // "Uninstall.exe /uninstall /silent": removes SysWidget and keeps its settings. No windows.
+    static int SilentUninstall()
+    {
+        try { Uninstall(false); return 0; } catch { return 1; }
     }
 
     // Started by the widget's "Update now": installs over the current copy with the same choices (startup task,
@@ -133,6 +158,7 @@ static class Setup
             k.SetValue("DisplayIcon", Exe);
             k.SetValue("InstallLocation", Dir);
             k.SetValue("UninstallString", "\"" + Uninst + "\" /uninstall");
+            k.SetValue("QuietUninstallString", "\"" + Uninst + "\" /uninstall /silent");
             k.SetValue("NoModify", 1, RegistryValueKind.DWord);
             k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
             k.SetValue("EstimatedSize", (int)((new FileInfo(Exe).Length + new FileInfo(Uninst).Length) / 1024), RegistryValueKind.DWord);
