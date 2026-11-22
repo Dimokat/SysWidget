@@ -132,8 +132,8 @@
         <p><a class="btn primary" href="https://github.com/Dimokat/SysWidget/releases/latest">Download from GitHub Releases</a></p>
       </div>
       <div class="box">
-        <h3>Signed and private</h3>
-        <p>See the <a href="#code-signing-policy">Code signing policy</a> for how releases are signed, and the <a href="privacy.html">privacy policy</a> for the few connections SysWidget makes (update checks, ping) and what they send.</p>
+        <h3>Built in the open</h3>
+        <p>See the <a href="#code-signing-policy">Code signing policy</a> for how releases are built and how to check a download, and the <a href="privacy.html">privacy policy</a> for the few connections SysWidget makes (update checks, ping) and what they send.</p>
         <p>Uninstall any time from <i>Settings → Apps</i>, or run Setup again and choose <b>Uninstall</b>.</p>
       </div>
     </div>
@@ -155,11 +155,12 @@
 <section id="code-signing-policy" class="policy">
   <div class="wrap">
     <h2>Code signing policy</h2>
-    <p class="sub">Free code signing provided by <a href="https://signpath.io">SignPath.io</a>, certificate by <a href="https://signpath.org">SignPath Foundation</a>.</p>
+    <p class="sub">Releases aren't code-signed yet, so Windows may show "Unknown publisher" or a SmartScreen warning. When a certificate is in place, this section will name it. Until then, every release can be checked against its public build.</p>
     <dl>
       <dt>Committers and reviewers</dt><dd><a href="https://github.com/Dimokat">Dimokat</a></dd>
-      <dt>Approvers</dt><dd><a href="https://github.com/Dimokat">Dimokat</a></dd>
-      <dt>Builds</dt><dd>Release binaries are built only by the <a href="https://github.com/Dimokat/SysWidget/blob/main/.github/workflows/release.yml">GitHub Actions release workflow</a> from this repository's source, and each signing is approved by hand.</dd>
+      <dt>Releases</dt><dd>Started by <a href="https://github.com/Dimokat">Dimokat</a> by tagging a version</dd>
+      <dt>Builds</dt><dd>Release binaries are built only by the <a href="https://github.com/Dimokat/SysWidget/blob/main/.github/workflows/release.yml">GitHub Actions release workflow</a> from this repository's source.</dd>
+      <dt>Checking a download</dt><dd>Each <a href="https://github.com/Dimokat/SysWidget/releases">release</a> lists the SHA-256 checksums of its zip, SysWidget.exe and Setup.exe, and its build log is public under <a href="https://github.com/Dimokat/SysWidget/actions/workflows/release.yml">Actions</a>. Compare with <code>Get-FileHash</code> in PowerShell. One-click updates check the zip's checksum before installing.</dd>
       <dt>Privacy</dt><dd>SysWidget doesn't collect personal data. It only connects to other systems for features you can see and turn off; the <a href="privacy.html">privacy policy</a> lists them.</dd>
     </dl>
   </div>
