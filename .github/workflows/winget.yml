@@ -1,0 +1,43 @@
+name: winget
+
+# Sends a release to winget: opens a pull request in microsoft/winget-pkgs that updates Dimokat.SysWidget to it
+# (new version, zip URL and checksum; everything else stays as it is). release.yml runs this after each release,
+# and it can be run by hand from the Actions tab for a release that's already out.
+# Needs the WINGET_TOKEN secret: a classic GitHub token with the public_repo scope. Without it, it does nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, like v1.6.4
+        required: true
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+    secrets:
+      WINGET_TOKEN:
+        required: false
+
+permissions: {}
+
+jobs:
+  winget:
+    runs-on: windows-latest
+    steps:
+      - name: Update the winget package
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          if (-not $env:WINGET_TOKEN) { 'No WINGET_TOKEN secret, so nothing to send.'; exit 0 }
+          if ($env:TAG -notmatch '^v\d+\.\d+\.\d+$') { throw "Tag must look like v1.2.3 (got $env:TAG)" }
+          $v = $env:TAG.TrimStart('v')
+          $url = "https://github.com/$env:REPO/releases/download/$env:TAG/SysWidget-$env:TAG.zip"
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          .\wingetcreate.exe update Dimokat.SysWidget --version $v --urls $url `
+            --release-notes-url "https://github.com/$env:REPO/releases/tag/$env:TAG" `
+            --release-date (Get-Date -Format yyyy-MM-dd) --submit --no-open --token $env:WINGET_TOKEN
+          if ($LASTEXITCODE) { throw "wingetcreate failed (exit code $LASTEXITCODE)" }

@@ -53,3 +53,11 @@ jobs:
                    "- ``Setup.exe``: ``$($h['Setup.exe'])``" +
                    "`n`n[Code signing policy](https://dimokat.github.io/SysWidget/#code-signing-policy) · [Privacy policy](https://dimokat.github.io/SysWidget/privacy.html)"
           gh release create '${{ github.ref_name }}' $env:ZIP --title 'SysWidget ${{ github.ref_name }}' --notes $notes --generate-notes
+
+  # Then send the new version to winget (see winget.yml).
+  winget:
+    needs: release
+    uses: ./.github/workflows/winget.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit
