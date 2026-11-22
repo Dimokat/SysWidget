@@ -2,6 +2,8 @@
 
 A tiny, native system-monitor widget for Windows. One small exe, no runtimes to install, ~0.03% CPU.
 
+<p align="center"><img src="docs/island.gif" width="900" alt="Mini mode: pointing at a stat opens a card with graphs, the busiest apps or the song that's playing"></p>
+
 [Homepage](https://dimokat.github.io/SysWidget/) · [Download](https://github.com/Dimokat/SysWidget/releases/latest) · [Support the project](https://send.monobank.ua/jar/125L2LfHgy)
 
 **CPU** load & temperature · **GPUs** (every one, integrated too) load, memory, temperature & power · **FPS** of the app in front · **RAM** · **Network** up/down · **Ping** · **Disks** activity & free space · **Battery** · **Now playing** with play/pause
@@ -10,8 +12,6 @@ A tiny, native system-monitor widget for Windows. One small exe, no runtimes to 
   <img src="docs/widget.png" width="300" alt="SysWidget with CPU, two GPUs, FPS, RAM, network and disks">&nbsp;&nbsp;
   <img src="docs/widget-accent.png" width="230" alt="The same widget using the Windows accent color as its background">
 </p>
-
-<p align="center"><img src="docs/mini.png" width="760" alt="Mini mode: everything on one line"></p>
 
 ## Install
 
