@@ -100,6 +100,7 @@ sealed partial class WidgetForm
         TestSamplingStall(log);
         TestIsland(log, 1, "row");
         TestIsland(log, 2, "column");
+        TestFullscreenEdge(log);
         TestSettingsWindow(log);
         TestLanguages(log);
     }
@@ -386,6 +387,60 @@ sealed partial class WidgetForm
         var card = IslandWide ? IslandRect(islandCurH) : Map(CardCanon(islandA, islandCurH), 0, 0);
         bool inX = card.Left >= wa.Left - 1 && card.Right <= wa.Right + 1, inY = card.Top >= wa.Top - 1 && card.Bottom <= wa.Bottom + 1;
         log.Check(inX && inY, name + ": the card is on screen (" + Fmt(card) + " in " + wa + ")");
+    }
+
+    // ---- a fullscreen app hides the taskbar: a widget docked against it slides onto the screen edge and back;
+    // a widget elsewhere stays put; in mini mode the island's cards open away from that edge.
+    void TestFullscreenEdge(TestLog log)
+    {
+        log.Line("== Fullscreen apps and the taskbar");
+        var mon = new Rectangle(0, 0, 1920, 1080);
+        log.Check(LooksFullscreen(mon, mon, true, 0x170B0000), "a browser's fullscreen video (maximized, no title bar) counts as fullscreen");
+        log.Check(!LooksFullscreen(new Rectangle(-8, -8, 1936, 1048), mon, true, 0x16CF0000), "a maximized window isn't fullscreen");
+        log.Check(!LooksFullscreen(new Rectangle(-8, -8, 1936, 1096), mon, true, 0x16CF0000), "a maximized window with an auto-hiding taskbar isn't fullscreen");
+        log.Check(LooksFullscreen(mon, mon, false, 0x14000000), "a borderless game counts as fullscreen");
+        log.Check(!LooksFullscreen(new Rectangle(0, 0, 1920, 1032), mon, false, 0x14000000), "a window the size of the work area isn't fullscreen");
+        var sc = Screen.FromHandle(Handle); Rectangle wa = sc.WorkingArea, bounds = sc.Bounds;
+        if (wa == bounds) { log.Line("No taskbar on this screen (or it hides itself): skipped."); log.Line(""); return; }
+        bool oldMini = miniPref; string oldAnchor = anchor; var oldLoc = Location;
+        Action run = () => { for (int i = 0; i < 100 && sliding; i++) { SlideStep(); Thread.Sleep(10); } };
+        foreach (bool m in new[] { false, true })
+        {
+            string what = m ? "mini" : "full";
+            miniPref = m; anchor = ""; Relayout();
+            // docked against the taskbar's edge (whichever side it's on)
+            int x = wa.Left + (wa.Width - W) / 2, y = wa.Top + (wa.Height - H) / 2;
+            if (wa.Bottom < bounds.Bottom) y = wa.Bottom - H; else if (wa.Top > bounds.Top) y = wa.Top; else if (wa.Right < bounds.Right) x = wa.Right - W; else x = wa.Left;
+            PlaceBody(new Point(x, y)); Render();
+            var before = Body;
+            var clock = Stopwatch.StartNew();
+            EdgeChanged(true); bool started = sliding; run();
+            double ms = Ms(clock);
+            var b = Body;
+            bool onEdge = (wa.Bottom < bounds.Bottom && b.Bottom == bounds.Bottom) || (wa.Top > bounds.Top && b.Top == bounds.Top)
+                || (wa.Right < bounds.Right && b.Right == bounds.Right) || (wa.Left > bounds.Left && b.Left == bounds.Left);
+            log.Check(started && onEdge, what + ": slides onto the freed screen edge (" + before + " -> " + b + ")");
+            log.Check(ms > 80 && ms < 600, what + ": the slide takes " + ms.ToString("0", CultureInfo.InvariantCulture) + " ms");
+            log.Check(dB == (wa.Bottom < bounds.Bottom) || dT == (wa.Top > bounds.Top), what + ": drawn docked to that edge");
+            if (m)
+            {
+                string first = null; foreach (var id in Sections()) if (IsShown(id, true)) { first = id; break; }
+                OpenIsland(first);
+                RunAnimation(new List<double>());
+                var card = IslandWide ? IslandRect(islandCurH) : Map(CardCanon(islandA, islandCurH), 0, 0);
+                log.Check(islandOpen && Rectangle.Round(card).IntersectsWith(bounds) && bounds.Contains(Rectangle.Round(card)), what + ": a card opens onto the screen, away from the edge (" + Fmt(card) + ")");
+                CloseIslandNow();
+            }
+            EdgeChanged(false); run();
+            log.Check(Body == before, what + ": back to where it was when the taskbar returns (" + Body + ")");
+            // a widget away from the taskbar stays put
+            PlaceBody(new Point(wa.Left + (wa.Width - W) / 2, wa.Top + (wa.Height - H) / 2)); Render();
+            var mid = Body; EdgeChanged(true); run();
+            log.Check(Body == mid && !sliding, what + ": a widget away from the taskbar doesn't move");
+            EdgeChanged(false); run();
+        }
+        miniPref = oldMini; anchor = oldAnchor; Relayout(); Location = oldLoc;
+        log.Line("");
     }
 
     // ---- settings window: every tab, height and drawing time

@@ -86,7 +86,7 @@ sealed partial class WidgetForm
     void AutoDirection()
     {
         if (miniDir != 0 || !mini || !IsHandleCreated) return;
-        var b = Body; var wa = Screen.FromRectangle(b).WorkingArea;
+        var b = Body; var wa = WorkArea(b);
         bool side = b.Left <= wa.Left || b.Right >= wa.Right, edge = b.Top <= wa.Top || b.Bottom >= wa.Bottom;
         bool v = side && !edge ? true : edge && !side ? false : miniVert;
         if (v == miniVert) return;
@@ -131,7 +131,7 @@ sealed partial class WidgetForm
         float lim = IslandRad + Fillet + w / 2;
         if (lim * 2 <= len) return Math.Max(lim, Math.Min(c, len - lim));
         // overhanging: keep the card on screen
-        var wa = Screen.FromRectangle(islandHome).WorkingArea;
+        var wa = WorkArea(islandHome);
         float lo = (IslandVert ? wa.Top - islandHome.Y : wa.Left - islandHome.X) + w / 2, hi = (IslandVert ? wa.Bottom - islandHome.Y : wa.Right - islandHome.X) - w / 2;
         return Math.Max(lo, Math.Min(c, hi));
     }
@@ -148,7 +148,7 @@ sealed partial class WidgetForm
     // "Wide" row: the whole island grows (down or up) and widens to the card if needed.
     RectangleF IslandRect(float h)
     {
-        var home = islandHome; var wa = Screen.FromRectangle(home).WorkingArea;
+        var home = islandHome; var wa = WorkArea(home);
         float full = CardDepth, frac = full > 0 ? Math.Min(1, h / full) : 0;
         bool wide = home.Width >= islandCardW;
         float w = wide ? home.Width : home.Width + (islandCardW - home.Width) * frac;
@@ -187,13 +187,13 @@ sealed partial class WidgetForm
     // ---- open / switch / close
     void OpenIsland(string id)
     {
-        if (!IsHandleCreated || hidden || fsHiddenNow) return;
+        if (!IsHandleCreated || hidden || fsHiddenNow || sliding) return;
         bool first = !islandOpen;
         islandCardW = (int)Math.Round(300 * s);
         if (first)
         {
             islandHome = new Rectangle(Left + M, Top + M, W, H);
-            var wa = Screen.FromRectangle(islandHome).WorkingArea;
+            var wa = WorkArea(islandHome);
             if (Vert) // away from the side it's on
             {
                 bool left = islandHome.Left <= wa.Left || (islandHome.Right < wa.Right && islandHome.X + islandHome.Width / 2 < wa.X + wa.Width / 2);
@@ -744,7 +744,7 @@ sealed partial class WidgetForm
     // The strip stays; the card hangs from the open stat, joined by two small inward curves.
     void RenderTab(Rectangle win)
     {
-        var home = islandHome; var wa = Screen.FromRectangle(home).WorkingArea;
+        var home = islandHome; var wa = WorkArea(home);
         var strip = new RectangleF(home.X - win.X, home.Y - win.Y, home.Width, home.Height);
         var cc = CardCanon(islandA, islandCurH);
         bool showCard = islandCurH > 0.5f;
@@ -834,7 +834,7 @@ sealed partial class WidgetForm
     // A row too short for a hanging card: the whole island grows, the strip staying at its edge.
     void RenderWide(Rectangle win)
     {
-        var home = islandHome; var r = IslandRect(islandCurH); var wa = Screen.FromRectangle(home).WorkingArea;
+        var home = islandHome; var r = IslandRect(islandCurH); var wa = WorkArea(home);
         var local = new RectangleF(r.X - win.X, r.Y - win.Y, r.Width, r.Height);
         bool dl = r.Left <= wa.Left, dt = r.Top <= wa.Top, dr = r.Right >= wa.Right, db = r.Bottom >= wa.Bottom;
         bool up = islandDir == 1;

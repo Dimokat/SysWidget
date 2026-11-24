@@ -440,6 +440,7 @@ sealed partial class WidgetForm : Form
         ctTimer.Interval = 50;
         ctTimer.Tick += delegate { CheckInteractive(); };
         fadeTimer.Tick += delegate { FadeStep(); };
+        slideTimer.Tick += delegate { SlideStep(); };
         hoverTimer.Tick += delegate { HoverStep(); };
         islandAnim.Tick += delegate { IslandStep(); };
     }
@@ -457,6 +458,7 @@ sealed partial class WidgetForm : Form
 
     void Relayout()
     {
+        FinishSlide();
         CloseIslandNow();
         Rectangle old = IsHandleCreated ? Body : Rectangle.Empty;
         ApplyScale();
@@ -467,7 +469,7 @@ sealed partial class WidgetForm : Form
         {
             if (anchor != "") { SnapTo(anchor); Render(); return; }
             // Keep the right edge (right half of screen) and a bottom-docked edge in place.
-            var wa = Screen.FromRectangle(old).WorkingArea;
+            var wa = WorkArea(old);
             int x = old.X + old.Width / 2 > wa.Left + wa.Width / 2 ? old.Right - W : old.X;
             int y = old.Bottom >= wa.Bottom ? old.Bottom - H : old.Y;
             PlaceBody(ClampTo(new Point(x, y), new Size(W, H), wa));
@@ -500,9 +502,73 @@ sealed partial class WidgetForm : Form
     }
     void PlaceBody(Point p) { Location = new Point(p.X - M, p.Y - M); }
 
+    // ---- a borderless fullscreen app (game, video) hides the taskbar: a widget docked against the taskbar slides
+    // onto the freed screen edge, and back when the taskbar returns.
+    bool fsEdge; // a fullscreen app is in front on our screen, so the whole screen is ours
+    Rectangle WorkArea(Rectangle r)
+    {
+        var sc = Screen.FromRectangle(r);
+        return fsEdge && IsHandleCreated && sc.DeviceName == Screen.FromHandle(Handle).DeviceName ? sc.Bounds : sc.WorkingArea;
+    }
+
+    void EdgeChanged(bool full)
+    {
+        if (full == fsEdge) return;
+        if (!IsHandleCreated) { fsEdge = full; return; }
+        var b = sliding ? new Rectangle(slideTo.X + M, slideTo.Y + M, W, H) : Body;
+        var before = WorkArea(b);
+        fsEdge = full;
+        var after = WorkArea(b);
+        int dx = 0, dy = 0;
+        if (b.Bottom >= before.Bottom && before.Bottom != after.Bottom) dy = after.Bottom - b.Bottom;
+        else if (b.Top <= before.Top && before.Top != after.Top) dy = after.Top - b.Top;
+        if (b.Right >= before.Right && before.Right != after.Right) dx = after.Right - b.Right;
+        else if (b.Left <= before.Left && before.Left != after.Left) dx = after.Left - b.Left;
+        if ((dx == 0 && dy == 0) || inMove) { if (!hidden && !fsHiddenNow) Render(); return; }
+        CloseIslandNow(); HidePopup();
+        SlideTo(new Point(b.X - M + dx, b.Y - M + dy));
+    }
+
+    // A quick ease-out slide of the whole window (about 0.16 s); the docked shape stays as it is on the way.
+    readonly System.Windows.Forms.Timer slideTimer = new System.Windows.Forms.Timer { Interval = 10 };
+    readonly System.Diagnostics.Stopwatch slideClock = new System.Diagnostics.Stopwatch();
+    Point slideFrom, slideTo; bool sliding, slideHiRes;
+    const double SlideMs = 160;
+
+    void SlideTo(Point to)
+    {
+        slideFrom = new Point(Left, Top); slideTo = to;
+        if (hidden || fsHiddenNow || !SystemInformation.UIEffectsEnabled || slideFrom == to) { sliding = false; slideTimer.Stop(); Location = to; Render(); return; }
+        sliding = true; slideClock.Restart();
+        if (!slideHiRes) { timeBeginPeriod(1); slideHiRes = true; }
+        slideTimer.Start();
+    }
+
+    // Ends a running slide at its destination (before a relayout or a drag).
+    void FinishSlide()
+    {
+        if (!sliding) return;
+        slideClock.Stop(); sliding = false; slideTimer.Stop();
+        if (slideHiRes) { timeEndPeriod(1); slideHiRes = false; }
+        Location = slideTo;
+    }
+
+    void SlideStep()
+    {
+        double t = Math.Min(1, slideClock.Elapsed.TotalMilliseconds / SlideMs), e = 1 - Math.Pow(1 - t, 3);
+        var p = new Point((int)Math.Round(slideFrom.X + (slideTo.X - slideFrom.X) * e), (int)Math.Round(slideFrom.Y + (slideTo.Y - slideFrom.Y) * e));
+        if (t >= 1)
+        {
+            sliding = false; slideTimer.Stop();
+            if (slideHiRes) { timeEndPeriod(1); slideHiRes = false; }
+        }
+        SetWindowRect(new Rectangle(p, Size));
+        if (!sliding) Render();
+    }
+
     void UpdateDock(Rectangle b)
     {
-        var wa = Screen.FromRectangle(b).WorkingArea;
+        var wa = WorkArea(b);
         dL = b.Left <= wa.Left; dT = b.Top <= wa.Top; dR = b.Right >= wa.Right; dB = b.Bottom >= wa.Bottom;
     }
 
@@ -648,7 +714,8 @@ sealed partial class WidgetForm : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        timer.Stop(); ctTimer.Stop(); fadeTimer.Stop(); hoverTimer.Stop(); AnimStop();
+        timer.Stop(); ctTimer.Stop(); fadeTimer.Stop(); hoverTimer.Stop(); AnimStop(); slideTimer.Stop();
+        if (slideHiRes) { timeEndPeriod(1); slideHiRes = false; }
         if (fgHook != IntPtr.Zero) UnhookWinEvent(fgHook);
         UnregisterHotKey(Handle, 1); UnregisterHotKey(Handle, 2);
         if (rtss) Rtss.Clear();
@@ -874,21 +941,31 @@ sealed partial class WidgetForm : Form
     bool FullscreenInFront()
     {
         IntPtr fg = GetForegroundWindow();
-        if (fg == IntPtr.Zero || fg == Handle || IsZoomed(fg)) return false; // a maximized window isn't fullscreen
+        if (fg == IntPtr.Zero || fg == Handle) return false;
         int pid; GetWindowThreadProcessId(fg, out pid); if (pid == ownPid) return false;
         var sb = new StringBuilder(32); GetClassName(fg, sb, sb.Capacity);
         string cls = sb.ToString();
         if (cls == "WorkerW" || cls == "Progman" || cls == "Shell_TrayWnd" || cls == "Shell_SecondaryTrayWnd") return false;
         RECT r; if (!GetWindowRect(fg, out r)) return false;
-        Rectangle mon = Screen.FromHandle(Handle).Bounds;
-        return r.L <= mon.Left && r.T <= mon.Top && r.R >= mon.Right && r.B >= mon.Bottom;
+        long style = GetWindowLongPtr(fg, -16 /*GWL_STYLE*/).ToInt64();
+        return LooksFullscreen(new Rectangle(r.L, r.T, r.R - r.L, r.B - r.T), Screen.FromHandle(Handle).Bounds, IsZoomed(fg), style);
+    }
+
+    // A window covering the whole monitor. Browsers keep their window maximized while a video is fullscreen,
+    // so a maximized window counts too, but only without a title bar and exactly the monitor's size (an ordinary
+    // maximized window has its title bar and reaches a few pixels past the screen, or stops at the taskbar).
+    internal static bool LooksFullscreen(Rectangle w, Rectangle mon, bool maximized, long style)
+    {
+        if (maximized) return (style & 0x00C00000 /*WS_CAPTION*/) != 0x00C00000 && w == mon;
+        return w.Left <= mon.Left && w.Top <= mon.Top && w.Right >= mon.Right && w.Bottom >= mon.Bottom;
     }
 
     void CheckFullscreen()
     {
         if (!IsHandleCreated) return;
-        bool a = fsMode != 0 && FullscreenInFront();
+        bool full = FullscreenInFront(), a = fsMode != 0 && full;
         if (a != fsActive) { fsActive = a; if (!a) fsOverride = false; if (fsMode == 1) Relayout(); }
+        EdgeChanged(full);
         bool hide = fsActive && fsMode == 2 && !hidden && !fsOverride;
         if (hide == fsHiddenNow) return;
         fsHiddenNow = hide;
@@ -928,7 +1005,7 @@ sealed partial class WidgetForm : Form
     {
         if (!IsHandleCreated || H <= 0) return;
         if (islandOpen) { RenderIsland(); return; }
-        if (dock) UpdateDock(Body);
+        if (dock && !sliding) UpdateDock(Body);
         var ws = WinSize();
         EnsureCanvas(ws.Width, ws.Height);
         using (var g = Graphics.FromImage(canvas))
@@ -1442,7 +1519,7 @@ sealed partial class WidgetForm : Form
             case 0x216: // WM_MOVING: keep the whole widget inside the screen under the cursor
             {
                 var r = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
-                var wa = Screen.FromPoint(Cursor.Position).WorkingArea;
+                var wa = WorkArea(new Rectangle(Cursor.Position, new Size(1, 1)));
                 var c = Cursor.Position; // follow the cursor, so leaving a magnetic edge is never blocked
                 var p = new Point(c.X - grab.X, c.Y - grab.Y);
                 int sd = (int)Math.Round(10 * dpi); // magnetic edges
@@ -1480,7 +1557,7 @@ sealed partial class WidgetForm : Form
             case 0x1A:  // WM_SETTINGCHANGE (also sent for theme / colour changes)
                 if (accentBg) BeginInvoke((MethodInvoker)UpdatePanelColor);
                 break;
-            case WM_ENTERSIZEMOVE: hasMoveTarget = false; inMove = true; moveStart = Location; grab = new Point(Cursor.Position.X - (Left + M), Cursor.Position.Y - (Top + M)); break;
+            case WM_ENTERSIZEMOVE: FinishSlide(); hasMoveTarget = false; inMove = true; moveStart = Location; grab = new Point(Cursor.Position.X - (Left + M), Cursor.Position.Y - (Top + M)); break;
             case WM_EXITSIZEMOVE: inMove = false; hasMoveTarget = false; if (Location != moveStart) { anchor = ""; AutoDirection(); } SaveSettings(); break;
             case WM_DISPLAYCHANGE: BeginInvoke((MethodInvoker)delegate { if (anchor != "") SnapTo(anchor); else PlaceBody(ValidPosition(Left + M, Top + M)); }); break;
         }
@@ -2579,7 +2656,7 @@ sealed partial class WidgetForm : Form
     {
         CloseIslandNow();
         anchor = a;
-        var wa = Screen.FromRectangle(Body).WorkingArea;
+        var wa = WorkArea(Body);
         int x = a[1] == 'L' ? wa.Left : a[1] == 'R' ? wa.Right - W : wa.Left + (wa.Width - W) / 2;
         int y = a[0] == 'T' ? wa.Top : a[0] == 'B' ? wa.Bottom - H : wa.Top + (wa.Height - H) / 2;
         PlaceBody(new Point(x, y));
