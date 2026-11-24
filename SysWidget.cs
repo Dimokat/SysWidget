@@ -938,17 +938,37 @@ sealed partial class WidgetForm : Form
     [DllImport("user32.dll")] static extern bool IsZoomed(IntPtr hwnd);
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out int value, int size);
 
+    [DllImport("user32.dll")] static extern IntPtr GetTopWindow(IntPtr hwnd);
+
+    // Is a fullscreen app (game, video) on top of our monitor? Not just the window with the focus: watching a video
+    // fullscreen on this screen while typing on another one still counts. Walks the windows from the top of the
+    // z-order, looking only at those on our monitor: the first ordinary window decides. Small always-on-top
+    // windows (overlays, picture-in-picture) are looked past; the taskbar showing above means no.
     bool FullscreenInFront()
     {
-        IntPtr fg = GetForegroundWindow();
-        if (fg == IntPtr.Zero || fg == Handle) return false;
-        int pid; GetWindowThreadProcessId(fg, out pid); if (pid == ownPid) return false;
-        var sb = new StringBuilder(32); GetClassName(fg, sb, sb.Capacity);
-        string cls = sb.ToString();
-        if (cls == "WorkerW" || cls == "Progman" || cls == "Shell_TrayWnd" || cls == "Shell_SecondaryTrayWnd") return false;
-        RECT r; if (!GetWindowRect(fg, out r)) return false;
-        long style = GetWindowLongPtr(fg, -16 /*GWL_STYLE*/).ToInt64();
-        return LooksFullscreen(new Rectangle(r.L, r.T, r.R - r.L, r.B - r.T), Screen.FromHandle(Handle).Bounds, IsZoomed(fg), style);
+        var screen = Screen.FromHandle(Handle); Rectangle mon = screen.Bounds;
+        int guard = 0;
+        for (IntPtr w = GetTopWindow(IntPtr.Zero); w != IntPtr.Zero && guard++ < 600; w = GetWindow(w, 2 /*GW_HWNDNEXT*/))
+        {
+            if (w == Handle || !IsWindowVisible(w) || IsIconic(w)) continue;
+            int pid; GetWindowThreadProcessId(w, out pid); if (pid == ownPid) continue;
+            RECT r; if (!GetWindowRect(w, out r)) continue;
+            var wr = new Rectangle(r.L, r.T, r.R - r.L, r.B - r.T);
+            // on our monitor: the one it's mostly on (a maximized window on the next screen pokes a few pixels into ours)
+            if (wr.Width <= 0 || wr.Height <= 0 || !wr.IntersectsWith(mon) || Screen.FromHandle(w).DeviceName != screen.DeviceName) continue;
+            int cloaked; if (DwmGetWindowAttribute(w, 14 /*DWMWA_CLOAKED*/, out cloaked, 4) == 0 && cloaked != 0) continue;
+            var sb = new StringBuilder(32); GetClassName(w, sb, sb.Capacity);
+            string cls = sb.ToString();
+            if (cls == "Shell_TrayWnd" || cls == "Shell_SecondaryTrayWnd") return false; // the taskbar is showing above
+            if (cls == "WorkerW" || cls == "Progman") return false;                      // down to the desktop
+            long ex = GetWindowLongPtr(w, GWL_EXSTYLE).ToInt64();
+            if ((ex & WS_EX_TOOLWINDOW) != 0 || (ex & WS_EX_TRANSPARENT) != 0) continue;      // overlays, tool palettes
+            long style = GetWindowLongPtr(w, -16 /*GWL_STYLE*/).ToInt64();
+            if (LooksFullscreen(wr, mon, IsZoomed(w), style)) return true;
+            if ((ex & 0x8 /*WS_EX_TOPMOST*/) != 0) continue; // a small always-on-top window above it
+            return false; // an ordinary window is on top here
+        }
+        return false;
     }
 
     // A window covering the whole monitor. Browsers keep their window maximized while a video is fullscreen,
