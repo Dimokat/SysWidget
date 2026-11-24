@@ -4,7 +4,7 @@ A tiny, native system-monitor widget for Windows. One small exe, no runtimes to 
 
 <p align="center"><img src="docs/island.gif" width="900" alt="Mini mode: pointing at a stat opens a card with graphs, the busiest apps or the song that's playing"></p>
 
-[Homepage](https://dimokat.github.io/SysWidget/) · [Download](https://github.com/Dimokat/SysWidget/releases/latest) · [Support the project](https://send.monobank.ua/jar/125L2LfHgy)
+[Homepage](https://syswidget.github.io/) · [Download](https://github.com/SysWidget/SysWidget/releases/latest) · [Support the project](https://send.monobank.ua/jar/125L2LfHgy)
 
 **CPU** load & temperature · **GPUs** (every one, integrated too) load, memory, temperature & power · **FPS** of the app in front · **RAM** · **Network** up/down · **Ping** · **Disks** activity & free space · **Battery** · **Now playing** with play/pause
 
@@ -15,7 +15,7 @@ A tiny, native system-monitor widget for Windows. One small exe, no runtimes to 
 
 ## Install
 
-1. Download **SysWidget-vX.Y.Z.zip** from the [latest release](https://github.com/Dimokat/SysWidget/releases/latest).
+1. Download **SysWidget-vX.Y.Z.zip** from the [latest release](https://github.com/SysWidget/SysWidget/releases/latest).
 2. Extract it and run **Setup.exe** from the **SysWidget** folder inside. Windows SmartScreen may say *"Windows protected your PC"* because the files aren't code-signed: click **More info → Run anyway**.
 3. Keep **Start with Windows** checked. It also enables the FPS counter.
 
@@ -71,7 +71,7 @@ Any other language shows English.
 
 ## Privacy and code signing
 
-SysWidget doesn't collect personal data. The [privacy policy](https://dimokat.github.io/SysWidget/privacy.html) lists the few connections it makes (update checks, ping) and what they send. See also the [code signing policy](https://dimokat.github.io/SysWidget/#code-signing-policy).
+SysWidget doesn't collect personal data. The [privacy policy](https://syswidget.github.io/privacy.html) lists the few connections it makes (update checks, ping) and what they send. See also the [code signing policy](https://syswidget.github.io/#code-signing-policy).
 
 ## Building
 

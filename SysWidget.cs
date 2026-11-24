@@ -2352,7 +2352,7 @@ sealed partial class WidgetForm : Form
     }
 
     // ---- update check: asks GitHub for the latest release ~30 s after start, then every 6 h ----
-    const string Repo = "Dimokat/SysWidget";
+    const string Repo = "SysWidget/SysWidget"; // moved from Dimokat/SysWidget (GitHub redirects the old address)
     const string DonateUrl = "https://send.monobank.ua/jar/125L2LfHgy";
     bool checkUpdates = true; string updateTag, updateUrl, updateZip, updateSha;
     readonly System.Windows.Forms.Timer updTimer = new System.Windows.Forms.Timer();
@@ -2434,7 +2434,7 @@ sealed partial class WidgetForm : Form
         if (!tm.Success || new Version(tm.Groups[1].Value) <= new Version(VersionText)) return false;
         tag = "v" + tm.Groups[1].Value;
         page = um.Success ? um.Groups[1].Value : "https://github.com/" + Repo + "/releases/latest";
-        var zm = Regex.Match(json, "\"browser_download_url\"\\s*:\\s*\"(https://github\\.com/" + Regex.Escape(Repo) + "/releases/download/[^\"]+\\.zip)\"");
+        var zm = Regex.Match(json, "\"browser_download_url\"\\s*:\\s*\"(https://github\\.com/(?:SysWidget|Dimokat)/SysWidget/releases/download/[^\"]+\\.zip)\"");
         var sm = Regex.Match(json, "\\.zip`?\\s*:\\s*`?([0-9a-fA-F]{64})");
         zipUrl = zm.Success ? zm.Groups[1].Value : null;
         sha = sm.Success ? sm.Groups[1].Value.ToLowerInvariant() : null;

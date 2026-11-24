@@ -137,16 +137,17 @@ sealed partial class WidgetForm
     void TestRelease(TestLog log)
     {
         log.Line("== Update check parsing");
-        string json = "{\"html_url\":\"https://github.com/Dimokat/SysWidget/releases/tag/v99.1.0\",\"tag_name\":\"v99.1.0\"," +
+        string json = "{\"html_url\":\"https://github.com/SysWidget/SysWidget/releases/tag/v99.1.0\",\"tag_name\":\"v99.1.0\"," +
             "\"body\":\"SHA-256:\\n- `SysWidget-v99.1.0.zip`: `" + new string('a', 64) + "`\\n- `SysWidget.exe`: `" + new string('b', 64) + "`\"," +
-            "\"assets\":[{\"browser_download_url\":\"https://github.com/Dimokat/SysWidget/releases/download/v99.1.0/SysWidget-v99.1.0.zip\"}]}";
+            "\"assets\":[{\"browser_download_url\":\"https://github.com/SysWidget/SysWidget/releases/download/v99.1.0/SysWidget-v99.1.0.zip\"}]}";
         string t, u, z, h;
         bool ok = ParseRelease(json, out t, out u, out z, out h);
         log.Check(ok && t == "v99.1.0", "newer release found");
-        log.Check(z == "https://github.com/Dimokat/SysWidget/releases/download/v99.1.0/SysWidget-v99.1.0.zip", "zip url");
+        log.Check(z == "https://github.com/SysWidget/SysWidget/releases/download/v99.1.0/SysWidget-v99.1.0.zip", "zip url");
+        log.Check(ParseRelease(json.Replace("github.com/SysWidget/SysWidget", "github.com/Dimokat/SysWidget"), out t, out u, out z, out h) && z != null && z.Contains("/Dimokat/SysWidget/"), "zip url from the old address");
         log.Check(h == new string('a', 64), "zip SHA-256 (not the exe's)");
         log.Check(!ParseRelease(json.Replace("99.1.0", "0.0.1"), out t, out u, out z, out h), "older release ignored");
-        log.Check(!ParseRelease(json.Replace("github.com/Dimokat/SysWidget/releases/download", "evil.example/x"), out t, out u, out z, out h) || z == null, "zip only from this repo");
+        log.Check(!ParseRelease(json.Replace("github.com/SysWidget/SysWidget/releases/download", "evil.example/x"), out t, out u, out z, out h) || z == null, "zip only from this repo");
         log.Line("");
     }
 

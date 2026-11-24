@@ -36,7 +36,7 @@ jobs:
           # Everything goes inside a SysWidget folder, so extracting never scatters files.
           New-Item pkg\SysWidget -ItemType Directory | Out-Null
           Copy-Item SysWidget.exe, Setup.exe, LICENSE pkg\SysWidget
-          "Run Setup.exe from this folder.`r`n`r`nSysWidget by Dimokat - https://github.com/Dimokat/SysWidget" | Set-Content pkg\SysWidget\README.txt
+          "Run Setup.exe from this folder.`r`n`r`nSysWidget by Dimokat - https://github.com/SysWidget/SysWidget" | Set-Content pkg\SysWidget\README.txt
           Compress-Archive pkg\SysWidget $zip
           "ZIP=$zip" | Out-File $env:GITHUB_ENV -Append
 
@@ -51,7 +51,7 @@ jobs:
                    "- ``$env:ZIP``: ``$($h[$env:ZIP])```n" +
                    "- ``SysWidget.exe``: ``$($h['SysWidget.exe'])```n" +
                    "- ``Setup.exe``: ``$($h['Setup.exe'])``" +
-                   "`n`n[Code signing policy](https://dimokat.github.io/SysWidget/#code-signing-policy) · [Privacy policy](https://dimokat.github.io/SysWidget/privacy.html)"
+                   "`n`n[Code signing policy](https://syswidget.github.io/#code-signing-policy) · [Privacy policy](https://syswidget.github.io/privacy.html)"
           gh release create '${{ github.ref_name }}' $env:ZIP --title 'SysWidget ${{ github.ref_name }}' --notes $notes --generate-notes
 
   # Then send the new version to winget (see winget.yml).
