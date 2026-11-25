@@ -697,6 +697,9 @@ sealed partial class WidgetForm : Form
         }
         // First start after an update (one-click or Setup): say so, with a link to what's new.
         Version last;
+        string news = null;
+        if (doneNotes != null && doneNotes.StartsWith("v" + VersionText + "|")) news = doneNotes.Substring(VersionText.Length + 2);
+        doneNotes = null;
         if (lastVersion != null && Version.TryParse(lastVersion, out last) && last < new Version(VersionText))
         {
             var t2 = new System.Windows.Forms.Timer { Interval = 2500 };
@@ -705,7 +708,7 @@ sealed partial class WidgetForm : Form
                 t2.Stop(); t2.Dispose();
                 if (tray == null) return;
                 balloonUpdate = false; balloonTaskMgr = false; balloonUrl = "https://github.com/" + Repo + "/releases/tag/v" + VersionText;
-                tray.ShowBalloonTip(8000, Lang.F("notify.updated.title", "v" + VersionText), Lang.T("notify.updated.text"), ToolTipIcon.Info);
+                tray.ShowBalloonTip(8000, Lang.F("notify.updated.title", "v" + VersionText), BalloonText(news, Lang.T("notify.updated.text")), ToolTipIcon.Info);
             };
             t2.Start();
         }
@@ -1153,7 +1156,14 @@ sealed partial class WidgetForm : Form
         if (updateTag != null) // small dot: an update is available
             using (var b = new SolidBrush(cFps)) g.FillEllipse(b, W - 7.5f * s, 3 * s, 4.5f * s, 4.5f * s);
 
-        if (mini) { if (Vert) return MiniLayoutV(g, true); MiniLayout(g, true); return pad * 1.2f + 17 * s; }
+        if (mini)
+        {
+            float mh;
+            if (Vert) { mh = MiniLayoutV(g, true); if (updProgress >= 0) { Bar(g, 8 * s, mh - 2 * s, W - 16 * s, 3 * s, updProgress, UpdateColor); mh += 6 * s; } return mh; }
+            MiniLayout(g, true); mh = pad * 1.2f + 17 * s;
+            if (updProgress >= 0) { Bar(g, pad * 0.9f, mh - 1 * s, W - 1.8f * pad, 3 * s, updProgress, UpdateColor); mh += 5 * s; }
+            return mh;
+        }
 
         float gh = (compact ? 16 : 26) * s, sgap = (compact ? 7 : 11) * s, gap = 0;
         hdrH = (compact ? 15.5f : 17) * s; smallH = (compact ? 12.5f : 14) * s;
@@ -1165,8 +1175,19 @@ sealed partial class WidgetForm : Form
             sectionRects[id] = new RectangleF(0, top - sgap / 2, W, y - top + sgap);
             y += gap;
         }
+        if (updProgress >= 0) // updating: a line at the bottom, downloading then installing
+        {
+            y += 10 * s - gap;
+            string what = updInstalling ? Lang.T("menu.update.installing") : Lang.T("menu.update.downloading") + "  " + Pct(updProgress / 0.9f * 100);
+            Txt(g, Fit(g, what, fSmall, w), fSmall, brDim, x, y, sf);
+            y += smallH + 2 * s;
+            Bar(g, x, y, w, 4 * s, updProgress, UpdateColor);
+            return y + 4 * s + pad;
+        }
         return y - gap + pad;
     }
+
+    Color UpdateColor { get { return Shade(updInstalling ? cGpu : cCpu); } }
 
     float hdrH = 17, smallH = 14;
 
@@ -2169,7 +2190,8 @@ sealed partial class WidgetForm : Form
         menu.Opening += delegate
         {
             miUpdate.Visible = miUpdSep.Visible = updateTag != null;
-            if (updateTag != null) miUpdate.Text = updating ? Lang.T("menu.update.downloading") : Lang.F(CanSelfUpdate ? "menu.update.install" : "menu.update", updateTag);
+            if (updateTag != null) miUpdate.Text = updating ? Lang.T(updInstalling ? "menu.update.installing" : "menu.update.downloading") : Lang.F(CanSelfUpdate ? "menu.update.install" : "menu.update", updateTag);
+            miUpdate.ToolTipText = updateNotes;
             miUpdate.Enabled = !updating;
         };
         miTop = new ToolStripMenuItem(Lang.T("menu.ontop"), null, delegate { SetOnTop(!onTop); SaveSettings(); });
@@ -2451,7 +2473,9 @@ sealed partial class WidgetForm : Form
     // ---- update check: asks GitHub for the latest release ~30 s after start, then every 6 h ----
     const string Repo = "SysWidget/SysWidget"; // moved from Dimokat/SysWidget (GitHub redirects the old address)
     const string DonateUrl = "https://send.monobank.ua/jar/125L2LfHgy";
-    bool checkUpdates = true; string updateTag, updateUrl, updateZip, updateSha;
+    bool checkUpdates = true; string updateTag, updateUrl, updateZip, updateSha, updateNotes;
+    string doneNotes;                    // "v1.2.3|summary": shown in the "updated" notification after restarting
+    float updProgress = -1; bool updInstalling; // the update's progress line in the widget (-1 = none)
     readonly System.Windows.Forms.Timer updTimer = new System.Windows.Forms.Timer();
     static readonly Version AppVersion = typeof(WidgetForm).Assembly.GetName().Version;
     static string VersionText { get { return AppVersion.Major + "." + AppVersion.Minor + "." + AppVersion.Build; } }
@@ -2473,6 +2497,8 @@ sealed partial class WidgetForm : Form
         updating = true;
         string tag = updateTag, zipUrl = updateZip, sha = updateSha, page = updateUrl;
         if (tray != null) tray.ShowBalloonTip(5000, Lang.F("notify.update.title", tag), Lang.T("notify.update.downloading"), ToolTipIcon.Info);
+        updProgress = 0; updInstalling = false; Relayout(); // the widget grows a progress line
+        Action<float, bool> progress = (f, inst) => { try { BeginInvoke((MethodInvoker)delegate { if (!updating) return; updProgress = f; updInstalling = inst; if (!hidden && !fsHiddenNow) Render(); }); } catch { } };
         ThreadPool.QueueUserWorkItem(delegate
         {
             try
@@ -2482,7 +2508,18 @@ sealed partial class WidgetForm : Form
                 Directory.CreateDirectory(dir);
                 string zip = Path.Combine(dir, "update.zip"), files = Path.Combine(dir, "files");
                 ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
-                using (var wc = new WebClient()) { wc.Headers[HttpRequestHeader.UserAgent] = "SysWidget/" + VersionText; wc.DownloadFile(zipUrl, zip); }
+                var req = (HttpWebRequest)WebRequest.Create(zipUrl);
+                req.UserAgent = "SysWidget/" + VersionText; req.Timeout = 30000; req.ReadWriteTimeout = 30000;
+                using (var resp = req.GetResponse()) using (var src = resp.GetResponseStream()) using (var dst = File.Create(zip))
+                {
+                    long total = resp.ContentLength, got = 0; var buf = new byte[65536]; int n; var tick = Stopwatch.StartNew();
+                    while ((n = src.Read(buf, 0, buf.Length)) > 0)
+                    {
+                        dst.Write(buf, 0, n); got += n;
+                        if (tick.ElapsedMilliseconds >= 50) { tick.Restart(); progress(total > 0 ? 0.9f * got / total : 0.45f, false); }
+                    }
+                }
+                progress(0.9f, true); // downloaded: now checking, unpacking and installing
                 if (sha != null)
                     using (var hash = System.Security.Cryptography.SHA256.Create())
                     using (var st = File.OpenRead(zip))
@@ -2490,13 +2527,20 @@ sealed partial class WidgetForm : Form
                 System.IO.Compression.ZipFile.ExtractToDirectory(zip, files);
                 string setup = Path.Combine(files, "SysWidget", "Setup.exe");
                 if (!File.Exists(setup) || !File.Exists(Path.Combine(files, "SysWidget", "SysWidget.exe"))) throw new FileNotFoundException("Setup.exe");
+                progress(0.96f, true);
                 BeginInvoke((MethodInvoker)delegate
                 {
                     try
                     {
+                        doneNotes = updateNotes != null ? tag + "|" + updateNotes : null;
                         SaveSettings();
                         Process.Start(new ProcessStartInfo(setup, "/update") { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(setup) });
-                        skipSave = true; Close(); // Setup waits for us to exit, installs, then starts the new version
+                        skipSave = true;
+                        // Setup waits for us to exit, installs, then starts the new version: fill the line, then go.
+                        updProgress = 1; if (!hidden && !fsHiddenNow) Render();
+                        var bye = new System.Windows.Forms.Timer { Interval = 350 };
+                        bye.Tick += delegate { bye.Stop(); bye.Dispose(); Close(); };
+                        bye.Start();
                     }
                     catch (Exception ex) { UpdateFailed(tag, page, ex.Message); }
                 });
@@ -2508,6 +2552,7 @@ sealed partial class WidgetForm : Form
     void UpdateFailed(string tag, string page, string why)
     {
         updating = false;
+        if (updProgress >= 0) { updProgress = -1; Relayout(); }
         if (tray == null) return;
         balloonUpdate = false; balloonTaskMgr = false; balloonUrl = page;
         tray.ShowBalloonTip(8000, Lang.F("notify.update.title", tag), Lang.F("notify.update.failed", why), ToolTipIcon.Warning);
@@ -2525,6 +2570,13 @@ sealed partial class WidgetForm : Form
     // (from the release notes, which the release workflow writes). The zip is only accepted from this repo.
     internal static bool ParseRelease(string json, out string tag, out string page, out string zipUrl, out string sha)
     {
+        string notes; return ParseRelease(json, out tag, out page, out zipUrl, out sha, out notes);
+    }
+
+    // ... and the release's short summary, which the release notes keep between <!--summary--> and <!--/summary-->.
+    internal static bool ParseRelease(string json, out string tag, out string page, out string zipUrl, out string sha, out string notes)
+    {
+        notes = ReleaseSummary(json);
         tag = page = zipUrl = sha = null;
         var tm = Regex.Match(json, "\"tag_name\"\\s*:\\s*\"v?([0-9]+(?:\\.[0-9]+){1,3})\"");
         var um = Regex.Match(json, "\"html_url\"\\s*:\\s*\"(https://github\\.com/[^\"]+/releases/tag/[^\"]+)\"");
@@ -2536,6 +2588,57 @@ sealed partial class WidgetForm : Form
         zipUrl = zm.Success ? zm.Groups[1].Value : null;
         sha = sm.Success ? sm.Groups[1].Value.ToLowerInvariant() : null;
         return true;
+    }
+
+    internal static string ReleaseSummary(string json)
+    {
+        var bm = Regex.Match(json, "\"body\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
+        if (!bm.Success) return null;
+        string body = JsonUnescape(bm.Groups[1].Value);
+        int a = body.IndexOf("<!--summary-->", StringComparison.Ordinal), b = body.IndexOf("<!--/summary-->", StringComparison.Ordinal);
+        if (a < 0 || b <= a) return null;
+        var lines = new List<string>();
+        foreach (var raw in body.Substring(a + 14, b - a - 14).Replace("\r", "").Split('\n'))
+        {
+            string l = raw.Trim();
+            if (l == "") continue;
+            if (l.StartsWith("- ") || l.StartsWith("* ")) l = "\u2022 " + l.Substring(2).Trim();
+            lines.Add(l.Replace("**", "").Replace("`", ""));
+        }
+        return lines.Count == 0 ? null : string.Join("\n", lines);
+    }
+
+    static string JsonUnescape(string s)
+    {
+        var sb = new StringBuilder(s.Length);
+        for (int i = 0; i < s.Length; i++)
+        {
+            char c = s[i];
+            if (c != '\\' || i + 1 >= s.Length) { sb.Append(c); continue; }
+            char n = s[++i];
+            switch (n)
+            {
+                case 'n': sb.Append('\n'); break;
+                case 'r': sb.Append('\r'); break;
+                case 't': sb.Append('\t'); break;
+                case 'b': case 'f': break;
+                case 'u':
+                    int code;
+                    if (i + 4 < s.Length && int.TryParse(s.Substring(i + 1, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out code)) { sb.Append((char)code); i += 4; }
+                    break;
+                default: sb.Append(n); break; // \" \\ \/
+            }
+        }
+        return sb.ToString();
+    }
+
+    // A notification's text has room for about 250 characters: the summary first, then the action.
+    static string BalloonText(string notes, string action)
+    {
+        if (string.IsNullOrEmpty(notes)) return action;
+        int room = 250 - action.Length - 1;
+        if (notes.Length > room) notes = notes.Substring(0, Math.Max(0, room - 1)).TrimEnd() + "\u2026";
+        return notes + "\n" + action;
     }
 
     void CheckForUpdate()
@@ -2551,15 +2654,15 @@ sealed partial class WidgetForm : Form
                 req.UserAgent = "SysWidget/" + VersionText; req.Accept = "application/vnd.github+json"; req.Timeout = 15000;
                 string json;
                 using (var resp = req.GetResponse()) using (var rd = new StreamReader(resp.GetResponseStream())) json = rd.ReadToEnd();
-                string t, u, z, h;
-                if (!ParseRelease(json, out t, out u, out z, out h)) return;
+                string t, u, z, h, n;
+                if (!ParseRelease(json, out t, out u, out z, out h, out n)) return;
                 BeginInvoke((MethodInvoker)delegate
                 {
-                    updateTag = t; updateUrl = u; updateZip = z; updateSha = h; if (!hidden) Render();
+                    updateTag = t; updateUrl = u; updateZip = z; updateSha = h; updateNotes = n; if (!hidden) Render();
                     if (tray != null && notifiedTag != t)
                     {
                         notifiedTag = t; balloonUpdate = CanSelfUpdate; balloonUrl = balloonUpdate ? null : u; balloonTaskMgr = false;
-                        tray.ShowBalloonTip(8000, Lang.F("notify.update.title", t), Lang.T(balloonUpdate ? "notify.update.click" : "notify.update.text"), ToolTipIcon.Info);
+                        tray.ShowBalloonTip(8000, Lang.F("notify.update.title", t), BalloonText(n, Lang.T(balloonUpdate ? "notify.update.click" : "notify.update.text")), ToolTipIcon.Info);
                     }
                 });
             }
@@ -2778,6 +2881,7 @@ sealed partial class WidgetForm : Form
                 else if (k == "minivert") miniVert = v == "1";
                 else if (k == "rtss") rtss = v == "1";
                 else if (k == "version") lastVersion = v;
+                else if (k == "notes") doneNotes = v.Replace("\\n", "\n");
                 else if (k == "alerts")
                 {
                     var parts = v.Split(',');
@@ -2825,7 +2929,8 @@ sealed partial class WidgetForm : Form
                 "fullscreen=" + (fsMode == 1 ? "mini" : fsMode == 2 ? "hide" : "off"), "hotkeys=" + (hotkeys ? "1" : "0"), "hoverapps=" + (hoverApps ? "1" : "0"),
                 "alerts=" + AlertsText(), "known=" + string.Join(",", known), "tips=" + (tipsSeen ? "1" : "0"),
                 "ministyle=" + (islandStyle ? "island" : "classic"), "islandpop=" + (islandPop ? "1" : "0"),
-                "minidir=" + (miniDir == 1 ? "row" : miniDir == 2 ? "column" : "auto"), "minivert=" + (miniVert ? "1" : "0"), "rtss=" + (rtss ? "1" : "0"), "version=" + VersionText });
+                "minidir=" + (miniDir == 1 ? "row" : miniDir == 2 ? "column" : "auto"), "minivert=" + (miniVert ? "1" : "0"), "rtss=" + (rtss ? "1" : "0"), "version=" + VersionText,
+                "notes=" + (doneNotes ?? "").Replace("\r", "").Replace("\n", "\\n") });
         }
         catch { }
     }

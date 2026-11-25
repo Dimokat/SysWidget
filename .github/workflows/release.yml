@@ -1,6 +1,9 @@
 name: Release
 
 # Push a tag like v1.1.0 -> builds SysWidget.exe + Setup.exe on Windows and publishes them as a zip in a GitHub Release.
+# Tag with a message: it becomes the release's short summary (what changed, in plain words, a few "- " lines), which
+# the widget also shows in its "new version" notification:
+#   git tag -a v1.2.3 -m "- What changed for users" -m "- Another change"
 on:
   push:
     tags: ['v*']
@@ -13,6 +16,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the previous tag, for the "Full changelog" link
 
       - name: Version from tag
         shell: pwsh
@@ -45,14 +50,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $tag = '${{ github.ref_name }}'
+          # The tag's message is the summary (checkout leaves annotated tags without their message: fetch it again).
+          git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}" 2>$null
+          $summary = ''
+          if ((git cat-file -t "refs/tags/$tag") -eq 'tag') { $summary = ((git for-each-ref "refs/tags/$tag" --format='%(contents)') -join "`n").Trim() } # a lightweight tag has no message
+          $prev = git describe --tags --abbrev=0 "$tag^" 2>$null
           $h = @{}
           foreach ($f in $env:ZIP, 'SysWidget.exe', 'Setup.exe') { $h[$f] = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower() }
-          $notes = "Download **$env:ZIP** below, extract it, then run **Setup.exe**.`n`nSHA-256:`n" +
+          # 1) the summary (the widget reads it between the markers), 2) the full changelog link, 3) download + SHA-256
+          $notes = ''
+          if ($summary) { $notes += "<!--summary-->`n$summary`n<!--/summary-->`n`n" }
+          if ($prev) { $notes += "**Full changelog**: https://github.com/${{ github.repository }}/compare/$prev...$tag`n`n" }
+          $notes += "Download **$env:ZIP** below, extract it, then run **Setup.exe**.`n`nSHA-256:`n" +
                    "- ``$env:ZIP``: ``$($h[$env:ZIP])```n" +
                    "- ``SysWidget.exe``: ``$($h['SysWidget.exe'])```n" +
                    "- ``Setup.exe``: ``$($h['Setup.exe'])``" +
                    "`n`n[Code signing policy](https://syswidget.github.io/#code-signing-policy) · [Privacy policy](https://syswidget.github.io/privacy.html)"
-          gh release create '${{ github.ref_name }}' $env:ZIP --title 'SysWidget ${{ github.ref_name }}' --notes $notes --generate-notes
+          gh release create $tag $env:ZIP --title "SysWidget $tag" --notes $notes
 
   # Then send the new version to winget (see winget.yml).
   winget:

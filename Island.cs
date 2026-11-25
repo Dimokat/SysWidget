@@ -187,7 +187,7 @@ sealed partial class WidgetForm
     // ---- open / switch / close
     void OpenIsland(string id)
     {
-        if (!IsHandleCreated || hidden || fsHiddenNow || sliding) return;
+        if (!IsHandleCreated || hidden || fsHiddenNow || sliding || updProgress >= 0) return;
         bool first = !islandOpen;
         islandCardW = (int)Math.Round(300 * s);
         if (first)
