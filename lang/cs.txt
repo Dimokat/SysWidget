@@ -187,6 +187,7 @@ detail.free = Volné místo
 detail.host = Server
 detail.time = Zbývající čas
 detail.controls = Tlačítka
+detail.games = Jen ve hrách
 color.down = Stahování
 color.up = Odesílání
 button.ok = OK

@@ -187,6 +187,7 @@ detail.free = Dung lượng trống
 detail.host = Máy chủ
 detail.time = Thời gian còn lại
 detail.controls = Nút
+detail.games = Chỉ khi chơi game
 color.down = Tải xuống
 color.up = Tải lên
 button.ok = OK

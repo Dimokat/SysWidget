@@ -187,6 +187,7 @@ detail.free = 여유 공간
 detail.host = 서버
 detail.time = 남은 시간
 detail.controls = 버튼
+detail.games = 게임 중에만
 color.down = 다운로드
 color.up = 업로드
 button.ok = 확인

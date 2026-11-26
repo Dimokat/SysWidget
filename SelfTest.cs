@@ -98,7 +98,7 @@ sealed partial class WidgetForm
     {
         Sample(); Sample();
         // Show every section everywhere for the run (only in memory: nothing is saved).
-        hiddenFull.Clear(); hiddenMini.Clear(); detailsOff.Clear();
+        hiddenFull.Clear(); hiddenMini.Clear(); detailsOff.Clear(); detailsOn.Clear();
         log.Line("Screen: " + Screen.FromRectangle(Body).WorkingArea + ", DPI scale " + dpi.ToString("0.##", CultureInfo.InvariantCulture) + ", sections: " + string.Join(", ", new List<string>(Sections())));
         log.Line("");
 
@@ -109,6 +109,7 @@ sealed partial class WidgetForm
         TestIsland(log, 1, "row");
         TestIsland(log, 2, "column");
         TestFullscreenEdge(log);
+        TestFpsInGames(log);
         TestSettingsWindow(log);
         TestLanguages(log);
     }
@@ -475,6 +476,27 @@ sealed partial class WidgetForm
             EdgeChanged(false); run();
         }
         miniPref = oldMini; anchor = oldAnchor; Relayout(); Location = oldLoc;
+        log.Line("");
+    }
+
+    // ---- FPS "only in games": hidden on the desktop, shown while a game (any fullscreen app) is in front
+    void TestFpsInGames(TestLog log)
+    {
+        log.Line("== FPS only in games");
+        bool oldMini = miniPref; int oldDir = miniDir; bool oldGame = gameNow;
+        foreach (int mode in new[] { 0, 1, 2 })
+        {
+            string what = new[] { "full", "row", "column" }[mode];
+            miniPref = mode != 0; miniDir = mode == 2 ? 2 : 1;
+            SetOpt("fps", "games", false); gameNow = false; Relayout(); int hAll = mode == 1 ? W : H;
+            SetOpt("fps", "games", true); gameNow = false; Relayout(); Render(); int hDesk = mode == 1 ? W : H;
+            log.Check(!sectionRects.ContainsKey("fps") && hDesk < hAll, what + ": FPS hidden on the desktop (" + hAll + " -> " + hDesk + " px)");
+            gameNow = true; Relayout(); Render();
+            log.Check(sectionRects.ContainsKey("fps") && (mode == 1 ? W : H) == hAll, what + ": FPS shown in a game");
+            SetOpt("fps", "games", false); gameNow = oldGame;
+        }
+        log.Check(!Opt("fps", "games") && Opt("fps", "graph"), "the option starts off and doesn't touch the others");
+        miniPref = oldMini; miniDir = oldDir; Relayout();
         log.Line("");
     }
 

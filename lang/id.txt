@@ -187,6 +187,7 @@ detail.free = Ruang kosong
 detail.host = Server
 detail.time = Sisa waktu
 detail.controls = Tombol
+detail.games = Hanya saat bermain
 color.down = Unduh
 color.up = Unggah
 button.ok = OK

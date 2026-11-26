@@ -187,6 +187,7 @@ detail.free = Boş alan
 detail.host = Sunucu
 detail.time = Kalan süre
 detail.controls = Düğmeler
+detail.games = Yalnızca oyunlarda
 color.down = İndirme
 color.up = Yükleme
 button.ok = Tamam

@@ -187,6 +187,7 @@ detail.free = Vrije ruimte
 detail.host = Server
 detail.time = Resterende tijd
 detail.controls = Knoppen
+detail.games = Alleen in games
 color.down = Download
 color.up = Upload
 button.ok = OK

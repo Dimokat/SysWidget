@@ -187,6 +187,7 @@ detail.free = Freier Speicher
 detail.host = Server
 detail.time = Restzeit
 detail.controls = Tasten
+detail.games = Nur in Spielen
 color.down = Download
 color.up = Upload
 button.ok = OK

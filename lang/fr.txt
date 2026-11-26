@@ -187,6 +187,7 @@ detail.free = Espace libre
 detail.host = Serveur
 detail.time = Temps restant
 detail.controls = Boutons
+detail.games = Seulement en jeu
 color.down = Réception
 color.up = Envoi
 button.ok = OK

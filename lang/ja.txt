@@ -187,6 +187,7 @@ detail.free = 空き容量
 detail.host = サーバー
 detail.time = 残り時間
 detail.controls = ボタン
+detail.games = ゲーム中のみ
 color.down = ダウンロード
 color.up = アップロード
 button.ok = OK

@@ -187,6 +187,7 @@ detail.free = Свободное место
 detail.host = Сервер
 detail.time = Оставшееся время
 detail.controls = Кнопки
+detail.games = Только в играх
 color.down = Загрузка
 color.up = Отправка
 button.ok = OK

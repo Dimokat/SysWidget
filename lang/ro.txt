@@ -187,6 +187,7 @@ detail.free = Spațiu liber
 detail.host = Server
 detail.time = Timp rămas
 detail.controls = Butoane
+detail.games = Doar în jocuri
 color.down = Descărcare
 color.up = Încărcare
 button.ok = OK

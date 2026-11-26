@@ -187,6 +187,7 @@ detail.free = Szabad hely
 detail.host = Szerver
 detail.time = Hátralévő idő
 detail.controls = Gombok
+detail.games = Csak játékban
 color.down = Letöltés
 color.up = Feltöltés
 button.ok = OK

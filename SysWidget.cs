@@ -987,7 +987,10 @@ sealed partial class WidgetForm : Form
     {
         if (!IsHandleCreated) return;
         bool full = FullscreenInFront(), a = fsMode != 0 && full;
-        if (a != fsActive) { fsActive = a; if (!a) fsOverride = false; if (fsMode == 1) Relayout(); }
+        bool relayout = full != gameNow && Opt("fps", "games");
+        gameNow = full;
+        if (a != fsActive) { fsActive = a; if (!a) fsOverride = false; if (fsMode == 1) { Relayout(); relayout = false; } }
+        if (relayout) Relayout(); // FPS appears or goes away
         EdgeChanged(full);
         bool hide = fsActive && fsMode == 2 && !hidden && !fsOverride;
         if (hide == fsHiddenNow) return;
@@ -1169,7 +1172,7 @@ sealed partial class WidgetForm : Form
         hdrH = (compact ? 15.5f : 17) * s; smallH = (compact ? 12.5f : 14) * s;
         foreach (var id in Sections())
         {
-            if (!IsShown(id, false)) continue;
+            if (!ShownNow(id, false)) continue;
             float top = y;
             gap = DrawSection(g, id, x, w, ref y, gh, sgap);
             sectionRects[id] = new RectangleF(0, top - sgap / 2, W, y - top + sgap);
@@ -1298,7 +1301,7 @@ sealed partial class WidgetForm : Form
         string tTemp = fahrenheit ? "212\u00B0F" : "100\u00B0C";
         foreach (var id in Sections())
         {
-            if (!IsShown(id, true)) continue;
+            if (!ShownNow(id, true)) continue;
             Color c = Shade(ColorOf(id));
             float x0 = x;
             segIcon = IconKind(id); // mini mode shows the section's icon instead of a dot
@@ -1718,7 +1721,8 @@ sealed partial class WidgetForm : Form
     // Sections have ids: cpu, fps, ram, net, disk and gpu:<vendor-device>. The order list also keeps GPUs
     // that aren't present right now (an eGPU, a GPU disabled in BIOS) so they return to their place.
     List<string> order = new List<string>();
-    readonly HashSet<string> hiddenFull = new HashSet<string>(), hiddenMini = new HashSet<string>(), detailsOff = new HashSet<string>();
+    readonly HashSet<string> hiddenFull = new HashSet<string>(), hiddenMini = new HashSet<string>(), detailsOff = new HashSet<string>(),
+        detailsOn = new HashSet<string>(); // options that start off (FPS "only in games")
     readonly Dictionary<string, Color> colors = new Dictionary<string, Color>();
     bool compact, hasHide, hasMiniHide, legacyHideGpus, legacyHideGpusMini; string legacyShow, legacyFps;
     static readonly string[] BaseSections = { "cpu", "fps", "ram", "net", "ping", "disk", "battery", "media" };
@@ -1762,7 +1766,11 @@ sealed partial class WidgetForm : Form
     internal IEnumerable<string> Sections() { foreach (var id in order) if (Available(id)) yield return id; }
     bool Available(string id) { return id == "battery" ? Battery.Present : !id.StartsWith("gpu:") || GpuById(id) != null; }
     Gpu GpuById(string id) { foreach (var g in gpus) if ("gpu:" + g.Key == id) return g; return null; }
-    bool IsLive(string id) { return Available(id) && IsShown(id, mini); }
+    bool IsLive(string id) { return Available(id) && ShownNow(id, mini); }
+
+    // Shown right now: turned on, and for FPS set to "only in games", a game (any fullscreen app) is in front.
+    bool gameNow;
+    bool ShownNow(string id, bool inMini) { return IsShown(id, inMini) && !(id == "fps" && !gameNow && Opt("fps", "games")); }
 
     internal bool IsShown(string id, bool inMini) { return !(inMini ? hiddenMini : hiddenFull).Contains(id); }
 
@@ -1780,10 +1788,12 @@ sealed partial class WidgetForm : Form
         LayoutChanged(); return true;
     }
 
-    internal bool Opt(string id, string detail) { return !detailsOff.Contains(id + "." + detail); }
+    static bool OffByDefault(string detail) { return detail == "games"; }
+    internal bool Opt(string id, string detail) { return OffByDefault(detail) ? detailsOn.Contains(id + "." + detail) : !detailsOff.Contains(id + "." + detail); }
     internal void SetOpt(string id, string detail, bool on)
     {
-        if (on) detailsOff.Remove(id + "." + detail); else detailsOff.Add(id + "." + detail);
+        var set = OffByDefault(detail) ? detailsOn : detailsOff;
+        if (on == OffByDefault(detail)) set.Add(id + "." + detail); else set.Remove(id + "." + detail);
         LayoutChanged();
     }
 
@@ -1799,7 +1809,7 @@ sealed partial class WidgetForm : Form
         switch (id)
         {
             case "cpu": keys = new[] { "temp", "graph" }; break;
-            case "fps": keys = new[] { "app", "graph" }; break;
+            case "fps": keys = new[] { "app", "graph", "games" }; break;
             case "ram": keys = new[] { "bar" }; break;
             case "net": keys = new[] { "up", "graph" }; break;
             case "disk": keys = new[] { "rw", "free" }; break;
@@ -2137,7 +2147,7 @@ sealed partial class WidgetForm : Form
 
     internal void ResetLayout()
     {
-        hiddenFull.Clear(); hiddenMini.Clear(); detailsOff.Clear(); colors.Clear(); compact = false; order.Clear(); known.Clear();
+        hiddenFull.Clear(); hiddenMini.Clear(); detailsOff.Clear(); detailsOn.Clear(); colors.Clear(); compact = false; order.Clear(); known.Clear();
         NormalizeLayout(); LayoutChanged();
     }
 
@@ -2852,6 +2862,7 @@ sealed partial class WidgetForm : Form
                 else if (k == "hide") { hiddenFull.Clear(); hiddenFull.UnionWith(Split(v)); hasHide = true; }
                 else if (k == "minihide") { hiddenMini.Clear(); hiddenMini.UnionWith(Split(v)); hasMiniHide = true; }
                 else if (k == "off") { detailsOff.Clear(); detailsOff.UnionWith(Split(v)); }
+                else if (k == "on") { detailsOn.Clear(); detailsOn.UnionWith(Split(v)); }
                 else if (k == "compact") compact = v == "1";
                 else if (k == "colors")
                     foreach (var kv in Split(v))
@@ -2923,7 +2934,7 @@ sealed partial class WidgetForm : Form
                 "ontop=" + (onTop ? "1" : "0"), "locked=" + (locked ? "1" : "0"), "clickthrough=" + (clickThrough ? "1" : "0"), "hidehover=" + (hideHover ? "1" : "0"), "mini=" + (miniPref ? "1" : "0"), "hidden=" + (hidden ? "1" : "0"), "bg=" + (accentBg ? "accent" : lightBg ? "light" : "dark"), "lang=" + langChoice, "updates=" + (checkUpdates ? "1" : "0"), "anchor=" + anchor,
                 "scale=" + scale.ToString(CI), "opacity=" + opacity.ToString(CI),
                 "order=" + string.Join(",", order), "hide=" + string.Join(",", hiddenFull), "minihide=" + string.Join(",", hiddenMini),
-                "off=" + string.Join(",", detailsOff), "compact=" + (compact ? "1" : "0"), "colors=" + ColorsText(),
+                "off=" + string.Join(",", detailsOff), "on=" + string.Join(",", detailsOn), "compact=" + (compact ? "1" : "0"), "colors=" + ColorsText(),
                 "graph=" + (graphStyle == 1 ? "line" : graphStyle == 2 ? "bars" : "area"), "interval=" + intervalMs.ToString(CI), "history=" + graphSec.ToString(CI),
                 "temp=" + (fahrenheit ? "f" : "c"), "netunit=" + (netBits ? "bits" : "bytes"), "ping=" + pinger.Host,
                 "fullscreen=" + (fsMode == 1 ? "mini" : fsMode == 2 ? "hide" : "off"), "hotkeys=" + (hotkeys ? "1" : "0"), "hoverapps=" + (hoverApps ? "1" : "0"),

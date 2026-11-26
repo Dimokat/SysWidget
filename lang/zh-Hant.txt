@@ -187,6 +187,7 @@ detail.free = 可用空間
 detail.host = 伺服器
 detail.time = 剩餘時間
 detail.controls = 按鈕
+detail.games = 僅在遊戲中
 color.down = 下載
 color.up = 上傳
 button.ok = 確定

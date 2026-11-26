@@ -191,6 +191,7 @@ detail.free = Free space
 detail.host = Server
 detail.time = Time left
 detail.controls = Buttons
+detail.games = Only in games
 color.down = Download
 color.up = Upload
 button.ok = OK

@@ -514,7 +514,7 @@ sealed partial class WidgetForm
         string tTemp = fahrenheit ? "212\u00B0F" : "100\u00B0C";
         foreach (var id in Sections())
         {
-            if (!IsShown(id, true)) continue;
+            if (!ShownNow(id, true)) continue;
             Color c = Shade(ColorOf(id));
             float y0 = y;
             switch (id)
